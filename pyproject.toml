@@ -28,6 +28,8 @@ scm = "commitizen.providers:ScmProvider"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
+pytest-html = "^4.1.1"
+pytest-cov = "^6.0.0"
 
 [tool.semantic_release]
 major_on_zero = false
