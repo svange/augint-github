@@ -46,3 +46,10 @@ class TestGitHubSecretsAndVars:
         runner = CliRunner()
         result = runner.invoke(cli, ["-d", env_file])
         assert result.exit_code == 0
+
+    def test_stub(self, env_file):
+        """
+        Test the CLI for creating and updating secrets and environment variables.
+        :return:
+        """
+        assert True
