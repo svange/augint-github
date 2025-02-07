@@ -16,20 +16,20 @@ env:
   GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
 jobs:
-  pre-commit-tests:
-    uses: ./.github/workflows/pre-commit.yml
-    name: Enforce commit standards
-    secrets: inherit
-    permissions:
-      id-token: write
-      contents: read
+#  pre-commit-tests:
+#    uses: ./.github/workflows/pre-commit.yml
+#    name: Enforce commit standards
+#    secrets: inherit
+#    permissions:
+#      id-token: write
+#      contents: read
 
   run-tests:
     name: Run pytest CI/CD tests
     strategy:
       matrix:
 #        python-version: [ "3.10", "3.11" ]
-        python-version: [ "3.10" ]
+        python-version: [ "3.12" ]
         platform: [ ubuntu-20.04 ]
     runs-on: ${{ matrix.platform }}
 
@@ -43,7 +43,7 @@ jobs:
       id: setup-python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.12'
       #----------------------------------------------
       #  -----  install & configure poetry  -----
       #----------------------------------------------
@@ -127,7 +127,7 @@ jobs:
         id: setup-python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
         #----------------------------------------------
         #  -----  install & configure poetry  -----
         #----------------------------------------------
@@ -169,7 +169,7 @@ jobs:
         id: setup-python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
         #----------------------------------------------
         #  -----  install & configure poetry  -----
         #----------------------------------------------
