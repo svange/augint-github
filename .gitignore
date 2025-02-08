@@ -13,3 +13,4 @@ dist
 .run/
 /.aws-sam/pipeline/pipelineconfig.toml
 /packaged-testing.yaml
+report.html
