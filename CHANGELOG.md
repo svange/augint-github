@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.1.0](https://github.com/svange/augint-github/compare/v1.0.0...v1.1.0) (2025-02-08)
+
+
+### Features
+
+* initial commit ([96b3de6](https://github.com/svange/augint-github/commit/96b3de6a1f6ffeaa538c8fe6056422ad5e660132))
+* initial commit ([cf55a24](https://github.com/svange/augint-github/commit/cf55a24c36bb8995b6d0b970b242123d7e621225))
+
 ## 1.0.0 (2025-02-07)
 
 
