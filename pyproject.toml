@@ -25,6 +25,13 @@ pep621 = "commitizen.providers:Pep621Provider"
 poetry = "commitizen.providers:PoetryProvider"
 scm = "commitizen.providers:ScmProvider"
 
+[tool.poetry.dependencies]
+python = ">=3.12,<4.0"
+click = "^8.1.8"
+python-dotenv = "^1.0.1"
+rich = "^13.9.4"
+loguru = "^0.7.3"
+pygithub = "^2.5.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
@@ -88,15 +95,6 @@ major_version_zero = true
 [tool.poetry.plugins."commitizen.scheme"]
 pep440 = "commitizen.version_schemes:Pep440"
 semver = "commitizen.version_schemes:SemVer"
-
-[tool.poetry.dependencies]
-python = "^3.12"
-click = "^8.1.8"
-python-dotenv = "^1.0.1"
-rich = "^13.9.4"
-loguru = "^0.7.3"
-pygithub = "^2.5.0"
-
 
 [tool.coverage] # not tested
 [tool.coverage.report]
