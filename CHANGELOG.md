@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.3.1](https://github.com/svange/augint-github/compare/v1.3.0...v1.3.1) (2025-07-02)
+
+
+### Bug Fixes
+
+* relaxing constraint on rich so it can work with new python-semantic-release versions. ([f2cda2a](https://github.com/svange/augint-github/commit/f2cda2a72d120760601c5c957a2171258f266d85))
+* updating pipeline test stage runner image. ([069117a](https://github.com/svange/augint-github/commit/069117a0a80b938711481ded69425457f5ac1dbb))
+
 ## [1.3.0](https://github.com/svange/augint-github/compare/v1.2.0...v1.3.0) (2025-02-25)
 
 
