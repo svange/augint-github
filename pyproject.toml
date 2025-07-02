@@ -29,7 +29,7 @@ scm = "commitizen.providers:ScmProvider"
 python = ">=3.9,<4.0"
 click = "^8.1.8"
 python-dotenv = "^1.0.1"
-rich = "^13.9.4"
+rich = ">=13.9.4,<15.0"
 loguru = "^0.7.3"
 pygithub = "^2.5.0"
 
