@@ -6,6 +6,7 @@
 .env.*.local
 *.env
 !*.env.example
+!tests/resources/test.env
 
 # === Python ===
 __pycache__/
@@ -43,6 +44,8 @@ test-results/
 test-results.json
 junit.xml
 *.lcov
+report.html
+test-report.html
 
 # === Claude Code ===
 .claude/settings.local.json
