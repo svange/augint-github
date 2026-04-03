@@ -56,11 +56,6 @@ build_command = "uv lock && uv build"
 match = "main"
 prerelease = false
 
-[tool.semantic_release.branches.dev]
-match = "dev"
-prerelease_token = "dev"
-prerelease = true
-
 [tool.semantic_release.commit_parser_options]
 patch_tags = ["fix", "perf", "chore", "refactor"]
 

@@ -8,7 +8,6 @@ on:
   push:
     branches:
       - main
-      - dev
 
 env:
   GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -334,50 +333,6 @@ jobs:
           packages-dir: dist/
           skip-existing: true
 
-  prerelease:
-    name: Prerelease
-    needs: [unit-tests, security-scan, compliance-reports]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-prerelease-${{ github.ref_name }}
-      cancel-in-progress: false
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          token: ${{ secrets.GH_TOKEN }}
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
-
-      - name: Force branch to workflow sha
-        run: git reset --hard ${{ github.sha }}
-
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Install dependencies
-        run: uv sync --all-extras
-
-      - name: Run semantic release (prerelease)
-        run: uv run semantic-release --strict version
-
-      - name: Publish to test PyPI
-        run: uv publish --publish-url https://test.pypi.org/legacy/
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TEST_TOKEN }}
-
   docs:
     name: Deploy documentation
     needs: release
@@ -441,6 +396,21 @@ jobs:
           name: unit-test-reports
           path: docs/tests
         continue-on-error: true
+
+      - name: Prepare report index files
+        run: |
+          if [ -d docs/coverage/htmlcov ]; then
+            cp -r docs/coverage/htmlcov/* docs/coverage/
+          fi
+          if [ -f docs/security/security-reports.html ]; then
+            cp docs/security/security-reports.html docs/security/index.html
+          fi
+          if [ -f docs/compliance/license-report.html ]; then
+            cp docs/compliance/license-report.html docs/compliance/index.html
+          fi
+          if [ -f docs/tests/test-report.html ]; then
+            cp docs/tests/test-report.html docs/tests/index.html
+          fi
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4
