@@ -1,12 +1,10 @@
 import asyncio
 import os
 
-import click
 import pytest
 from click.testing import CliRunner
 
 from gh_secrets_and_vars_async import cli, perform_update
-
 
 # from src.gh_secrets_and_vars import cli
 

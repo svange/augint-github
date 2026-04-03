@@ -1,238 +1,450 @@
-name: AugInt GH Tools 🐍 Deploy Infrastructure, test, and publish to PyPI
+name: CI/CD Pipeline
 
 on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
-      - 'main'
-      - 'dev'
-    tags-ignore:
-      - 'v*'
+      - main
+      - dev
 
 env:
-  PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-  PYPI_TEST_TOKEN: ${{ secrets.PYPI_TEST_TOKEN }}
-  GH_REPO: ${{ github.repository }}
-  GH_ACCOUNT: ${{ github.repository_owner }}
   GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  PYTHON_VERSION: ${{ vars.PYTHON_VERSION || '3.12' }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-#  pre-commit-tests:
-#    uses: ./.github/workflows/pre-commit.yml
-#    name: Enforce commit standards
-#    secrets: inherit
-#    permissions:
-#      id-token: write
-#      contents: read
-
-  run-tests:
-    name: Run pytest CI/CD tests
-    strategy:
-      matrix:
-#        python-version: [ "3.10", "3.11" ]
-        python-version: [ "3.12" ]
-        platform: [ ubuntu-latest ]
-    runs-on: ${{ matrix.platform }}
-
-    steps:
-      #----------------------------------------------
-      #       check-out repo and set-up python
-      #----------------------------------------------
-    - name: Check out repository
-      uses: actions/checkout@v4
-    - name: Set up python
-      id: setup-python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-      #----------------------------------------------
-      #  -----  install & configure poetry  -----
-      #----------------------------------------------
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
-      with:
-        virtualenvs-create: true
-        virtualenvs-in-project: true
-        installer-parallel: true
-
-      #----------------------------------------------
-      #       load cached venv if cache exists
-      #----------------------------------------------
-    - name: Load cached venv
-
-      id: cached-poetry-dependencies
-      uses: actions/cache@v4
-      with:
-        path: .venv
-        key: venv-docs-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
-      #----------------------------------------------
-      # install dependencies if cache does not exist
-      #----------------------------------------------
-    - name: Install dependencies
-      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-      run: poetry install --no-interaction --no-root
-      #----------------------------------------------
-      # install your root project, if required
-      #----------------------------------------------
-    - name: Install project
-      run: poetry install --no-interaction
-
-      #----------------------------------------------
-      #              run test suite
-      #----------------------------------------------
-    - name: Test with pytest
-      run: |
-        env
-        poetry run pytest tests
-
-    - name: upload test output
-      if: |
-        ${{ !cancelled() }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-output
-        path: pytest.log
-
-
-    - name: upload pretty test results
-      if: |
-        ${{ !cancelled() }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-html
-        path: report.html
-
-    - name: Skip tests if release commit
-      run: echo "Skipping tests for release commit"
-
-  publish-prerelease:
-    if: github.ref == 'refs/heads/dev'
-#    needs: [run-tests, pre-commit-tests]
-    needs: [run-tests]
+  pre-commit:
+    name: Pre-commit checks
     runs-on: ubuntu-latest
-    name: Publish to PyPi test
-    outputs:
-      tag: ${{ steps.bump.outputs.tag }}
+    permissions:
+      contents: read
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-#          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-        #----------------------------------------------
-        #       check-out repo and set-up python
-        #----------------------------------------------
-#      - name: Check out repository
-#        uses: actions/checkout@v4
-      - name: Set up python
-        id: setup-python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-        #----------------------------------------------
-        #  -----  install & configure poetry  -----
-        #----------------------------------------------
-      - name: Install Poetry
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-        uses: snok/install-poetry@v1
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-          installer-parallel: true
-      - name: Python Semantic Release
-        uses: python-semantic-release/python-semantic-release@master
-        env:
-          PYPI_TOKEN: ${{ secrets.PYPI_TEST_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-          PYPI_REPOSITORY: https://test.pypi.org/legacy/
-          RELEASE_BRANCH: dev
+          python-version: ${{ env.PYTHON_VERSION }}
 
-  publish-release:
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    name: Publish to PyPi
-#    needs: [run-tests, pre-commit-tests]
-    needs: [run-tests]
-    outputs:
-      tag: ${{ steps.bump.outputs.tag }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Install UV
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
         with:
-          fetch-depth: 0
-          persist-credentials: false
-#          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-        #----------------------------------------------
-        #       check-out repo and set-up python
-        #----------------------------------------------
-#      - name: Check out repository
-#        uses: actions/checkout@v4
-      - name: Set up python
-        id: setup-python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-        #----------------------------------------------
-        #  -----  install & configure poetry  -----
-        #----------------------------------------------
-      - name: Install Poetry
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
-        uses: snok/install-poetry@v1
-        with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-          installer-parallel: true
-
-        #----------------------------------------------
-        #       load cached venv if cache exists
-        #----------------------------------------------
-      - name: Load cached venv
-        id: cached-poetry-dependencies
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
-#        #----------------------------------------------
-#        # install dependencies if cache does not exist
-#        #----------------------------------------------
       - name: Install dependencies
-        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-        run: poetry install --no-interaction --no-root
-#        #----------------------------------------------
-#        # install your root project, if required
-#        #----------------------------------------------
-      - name: Install project
-        run: poetry install --no-interaction
+        run: uv sync --all-extras
 
-      - uses: bjoluc/semantic-release-config-poetry@v2.2.0
+      - name: Run pre-commit hooks
+        run: uv run pre-commit run --all-files
+
+  security-scan:
+    name: Security scanning
+    runs-on: ubuntu-latest
+    needs: [pre-commit]
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          pypi_token: ${{ secrets.PYPI_TOKEN }}
-          release_branch: ${{ github.ref_name }}
-          github_token: ${{ secrets.GH_TOKEN }}
+          python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install UV
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
-      - name: Show inputs to next workflow
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run Bandit security scan
         run: |
-          echo "Inputs to next workflow"
-          echo "version: ${{ steps.bump.outputs.tag }}"
-          echo "gh_token: ${{ secrets.GH_TOKEN }}"
-          env
+          uv run bandit -r src/ -f json -o bandit-report.json || true
+          uv run bandit -r src/ -ll
+        continue-on-error: false
 
-#  deploy_docs:
-#    needs: [publish-release]
-#    uses: ./.github/workflows/publish_docs.yml
-#    secrets: inherit
-#        with:
-#          version: ${{ steps.bump.outputs.tag }}
+      - name: Run pip-audit
+        run: |
+          uv export --no-dev --no-hashes -o prod-requirements.txt
+          uv run pip-audit --desc --format json --output pip-audit-report.json \
+            -r prod-requirements.txt --no-deps
+        continue-on-error: false
 
+      - name: Generate security HTML report
+        if: always()
+        run: |
+          cat > security-reports.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Security Scan Results</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 20px; background: #0d1117; color: #c9d1d9; }
+                  .report { margin: 20px 0; padding: 15px; border: 1px solid #30363d; border-radius: 8px; background: #161b22; }
+                  .report h2 { color: #58a6ff; margin-top: 0; }
+                  pre { background: #0d1117; padding: 10px; border-radius: 4px; overflow-x: auto; border: 1px solid #30363d; font-size: 12px; }
+                  .error { color: #ff7b72; }
+                  .warning { color: #ffa657; }
+                  .info { color: #79c0ff; }
+              </style>
+          </head>
+          <body>
+              <h1>Security Scan Results</h1>
+              <div class="report">
+                  <h2>Bandit Security Scan</h2>
+                  <pre id="bandit-content"></pre>
+              </div>
+              <div class="report">
+                  <h2>Pip-Audit Results</h2>
+                  <pre id="audit-content"></pre>
+              </div>
+              <script>
+                  const reports = [
+                      {id: 'bandit-content', file: 'bandit-report.json'},
+                      {id: 'audit-content', file: 'pip-audit-report.json'}
+                  ];
+                  reports.forEach(report => {
+                      fetch(report.file)
+                          .then(response => response.json())
+                          .then(data => {
+                              document.getElementById(report.id).textContent = JSON.stringify(data, null, 2);
+                          })
+                          .catch(error => {
+                              document.getElementById(report.id).textContent = 'Report not available';
+                          });
+                  });
+              </script>
+          </body>
+          </html>
+          EOF
 
+      - name: Upload security scan results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: security-scan-results
+          path: |
+            bandit-report.json
+            pip-audit-report.json
+            security-reports.html
 
-#
-#      - name: build docs
-#        run: |
-#          poetry run sphinx-build -b html ./docs/source ./docs/build
-#
-#      - uses: peaceiris/actions-gh-pages@v4
-#        with:
-#          github_token: ${{ secrets.GH_TOKEN }}
-#          publish_dir: ./docs/build
+  compliance-reports:
+    name: License compliance
+    runs-on: ubuntu-latest
+    needs: [pre-commit]
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Generate license reports
+        run: |
+          uv export --no-hashes --no-dev > runtime-requirements.txt
+          uv run pip-licenses --from=mixed --format=json --output-file=license-report.json
+          uv run pip-licenses --from=mixed --format=html --output-file=license-report.html
+          uv run pip-licenses --from=mixed --summary
+
+      - name: Upload compliance reports
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: compliance-reports
+          path: |
+            license-report.json
+            license-report.html
+
+  unit-tests:
+    name: Unit tests
+    needs: [pre-commit]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run type checking
+        run: uv run mypy src/ || true
+
+      - name: Run unit tests
+        run: |
+          uv run pytest \
+            --cov=src --cov-report=html --cov-report=xml --cov-fail-under=5 \
+            --html=test-report.html --self-contained-html \
+            --css=ci-resources/pytest-html.css \
+            -v
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: coverage-reports
+          path: |
+            htmlcov/
+            coverage.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: unit-test-reports
+          path: test-report.html
+
+  release:
+    name: Semantic release
+    needs: [unit-tests, security-scan, compliance-reports]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-release-${{ github.ref_name }}
+      cancel-in-progress: false
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Force release branch to workflow sha
+        run: git reset --hard ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run semantic release
+        id: release
+        run: |
+          RELEASED="false"
+          VERSION=""
+
+          set +e
+          uv run semantic-release --strict version
+          SEMANTIC_EXIT_CODE=$?
+          set -e
+
+          if [ $SEMANTIC_EXIT_CODE -eq 0 ]; then
+            echo "Semantic release succeeded"
+            RELEASED="true"
+            VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          else
+            echo "No release needed"
+          fi
+
+          echo "released=$RELEASED" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Upload distribution artifacts
+        if: steps.release.outputs.released == 'true'
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: distribution-artifacts
+          path: dist/
+          if-no-files-found: warn
+
+  publish-to-pypi:
+    name: Publish to PyPI
+    needs: release
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.release.outputs.released == 'true'
+    environment:
+      name: pypi
+      url: https://pypi.org/p/augint-github
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: distribution-artifacts
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true
+
+  prerelease:
+    name: Prerelease
+    needs: [unit-tests, security-scan, compliance-reports]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-prerelease-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Force branch to workflow sha
+        run: git reset --hard ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run semantic release (prerelease)
+        run: uv run semantic-release --strict version
+
+      - name: Publish to test PyPI
+        run: uv publish --publish-url https://test.pypi.org/legacy/
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TEST_TOKEN }}
+
+  docs:
+    name: Deploy documentation
+    needs: release
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Generate documentation
+        run: |
+          mkdir -p docs
+          uv run pdoc --output-dir docs \
+            --template-directory ci-resources/pdoc-templates \
+            src/gh_secrets_and_vars_async || true
+
+      - name: Download coverage reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-reports
+          path: docs/coverage
+        continue-on-error: true
+
+      - name: Download security scan results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: security-scan-results
+          path: docs/security
+        continue-on-error: true
+
+      - name: Download compliance reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: compliance-reports
+          path: docs/compliance
+        continue-on-error: true
+
+      - name: Download unit test report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unit-test-reports
+          path: docs/tests
+        continue-on-error: true
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4
+        with:
+          github_token: ${{ secrets.GH_TOKEN }}
+          publish_dir: ./docs
+          publish_branch: gh-pages

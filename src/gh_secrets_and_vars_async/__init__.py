@@ -5,16 +5,18 @@ from pathlib import Path
 import click
 import github.GithubException
 from dotenv import load_dotenv
-from github import Github, Auth
-from github.Repository import Repository
+from github import Auth, Github
 from github.GithubException import UnknownObjectException
-from rich import print
+from github.Repository import Repository
 from loguru import logger
+from rich import print
 
 
 @click.command()
 @click.option("--verbose", "-v", is_flag=True, help="Print all the output.")
-@click.option("--dry-run", "-d", is_flag=True, help="Run through the process, but make no changes to GitHub.")
+@click.option(
+    "--dry-run", "-d", is_flag=True, help="Run through the process, but make no changes to GitHub."
+)
 @click.argument("filename", type=click.Path(exists=True, readable=True), default=".env")
 def cli(verbose: bool, dry_run: bool, filename: click.Path):
     """
@@ -48,7 +50,17 @@ async def perform_update(filename: click.Path, verbose: bool = False, dry_run: b
     # Read the .env file and convert it to a JSON object
     secrets = {}
     not_secrets = {}
-    SECRETS_INDICATORS = ["secret", "key", "token", "bearer", "password", "pass", "pwd", "pword", "hash"]
+    SECRETS_INDICATORS = [
+        "secret",
+        "key",
+        "token",
+        "bearer",
+        "password",
+        "pass",
+        "pwd",
+        "pword",
+        "hash",
+    ]
     logger.debug(f"Reading file {file_path}")
 
     with file_path.open("r") as file:
@@ -68,12 +80,18 @@ async def perform_update(filename: click.Path, verbose: bool = False, dry_run: b
 
     try:
         repo = get_github_repo(github_account, github_repo)
-    except github.GithubException as e:
-        logger.critical(f"Repo {github_repo} not found. Ensure GH_REPO and GH_ACCOUNT are in your env file.")
+    except github.GithubException:
+        logger.critical(
+            f"Repo {github_repo} not found. Ensure GH_REPO and GH_ACCOUNT are in your env file."
+        )
         exit(1)
 
-    secret_update_result = await create_or_update_github_secrets(repo=repo, env_data=secrets, dry_run=dry_run)
-    not_secret_update_result = await create_or_update_github_variables(repo=repo, env_data=not_secrets, dry_run=dry_run)
+    secret_update_result = await create_or_update_github_secrets(
+        repo=repo, env_data=secrets, dry_run=dry_run
+    )
+    not_secret_update_result = await create_or_update_github_variables(
+        repo=repo, env_data=not_secrets, dry_run=dry_run
+    )
 
     results = {"SECRETS": secret_update_result, "VARIABLES": not_secret_update_result}
 
@@ -87,7 +105,8 @@ def get_github_repo(github_account, github_repo_name) -> Repository:
     :param github_repo_name: Name of the repository.
     :return: a GitHub repository object
     """
-    auth = Auth.Token(os.environ.get("GH_TOKEN", None))
+    token = os.environ.get("GH_TOKEN", "")
+    auth = Auth.Token(token)
     g = Github(auth=auth)
     try:
         repo = g.get_user(github_account).get_repo(github_repo_name)
@@ -127,7 +146,7 @@ async def create_or_update_github_secrets(repo, env_data, dry_run: bool = False)
             tasks.append(asyncio.to_thread(repo.delete_secret, secret_name))
 
     if dry_run:
-        results = [secret for secret in secrets]
+        results = list(secrets)
     else:
         results = await asyncio.gather(*tasks)
     return results
@@ -156,7 +175,9 @@ async def create_or_update_github_variables(repo, env_data, dry_run: bool = Fals
                 return repo.create_variable(env_var_name, env_var_value)
 
             # tasks.append(asyncio.to_thread(repo.delete_variable, env_var_name))
-            tasks.append(asyncio.to_thread(delete_then_create_variable, repo, env_var_name, env_var_value))
+            tasks.append(
+                asyncio.to_thread(delete_then_create_variable, repo, env_var_name, env_var_value)
+            )
         else:
             logger.info(f"{dry_run_prefix}Creating variable {env_var_name}...")
             tasks.append(asyncio.to_thread(repo.create_variable, env_var_name, env_var_value))
@@ -167,7 +188,7 @@ async def create_or_update_github_variables(repo, env_data, dry_run: bool = Fals
             tasks.append(asyncio.to_thread(repo.delete_variable, var_name))
 
     if dry_run:
-        results = [var for var in vars]
+        results = list(vars)
     else:
         results = await asyncio.gather(*tasks)
 

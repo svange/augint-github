@@ -1,0 +1,8 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    {# Dynamic redirect to first module - works with any module name #}
+    <meta http-equiv="refresh" content="0; url=./{{ all_modules.keys() | first }}.html"/>
+</head>
+</html>

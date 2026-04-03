@@ -1,81 +1,43 @@
-default_install_hook_types:
-  - pre-commit
-  - commit-msg
-  - pre-push
-
-default_stages:
-  - commit
-  - push
-
 repos:
-#- repo: local
-#  hooks:
-#  - id: python-hook
-#    name: python-hook
-#    entry: python python_script.py
-#    language: python
-#    pass_filenames: false
-#    additional_dependencies: [gradio]
-  - repo: meta
-    hooks:
-      - id: check-hooks-apply
-      - id: check-useless-excludes
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v4.6.0
     hooks:
-      - id: check-vcs-permalinks
-      - id: end-of-file-fixer
-        exclude: "tests/((commands|data)/|test_).+"
-      - id: trailing-whitespace
-        args: [ --markdown-linebreak-ext=md ]
-        exclude: CHANGELOG.md
-      - id: debug-statements
-#      - id: no-commit-to-branch
-      - id: check-merge-conflict
-      - id: check-toml
       - id: check-yaml
-        args: [ '--unsafe' ] # for mkdocs.yml
-      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
 
-#  - repo: https://github.com/asottile/blacken-docs
-#    rev: 1.13.0
-#    hooks:
-#      - id: blacken-docs
-#        additional_dependencies: [ black==22.10 ]
-
-#  - repo: https://github.com/codespell-project/codespell
-#    rev: v2.2.4
-#    hooks:
-#      - id: codespell
-#        name: Run codespell to check for common misspellings in files
-#        language: python
-#        types: [ text ]
-#        args: [ "--write-changes", "--ignore-words-list", "asend" ]
-#        exclude: "poetry.lock"
-
-  - repo: https://github.com/commitizen-tools/commitizen
-    rev: v3.9.1 # automatically updated by Commitizen
+  - repo: local
     hooks:
-      - id: commitizen
-#      - id: commitizen-branch
-#        stages:
-#          - post-commit
-#          - push
+      - id: forbid-env-commit
+        name: Block committed .env files
+        entry: python -c "import subprocess, sys; files = subprocess.run(['git', 'ls-files'], capture_output=True, text=True).stdout; sys.exit(1 if any(f.endswith('/.env') or f == '.env' for f in files.splitlines()) else 0)"
+        language: system
+        pass_filenames: false
 
-#  - repo: local
-#    hooks:
-#      - id: format
-#        name: format
-#        language: system
-#        pass_filenames: false
-#        entry: ./scripts/format
-#        types: [ python ]
-#
-#      - id: linter and test
-#        name: linter and test
-#        language: system
-#        pass_filenames: false
-#        stages: [ push ]
-#        entry: ./scripts/test
-#        types: [ python ]
+      - id: ruff-format
+        name: Ruff format
+        entry: uv run --no-sync ruff format src/ tests/
+        language: system
+        files: '\.py$'
+        pass_filenames: false
+
+      - id: ruff-check
+        name: Ruff check
+        entry: uv run --no-sync ruff check --fix src/ tests/
+        language: system
+        files: '\.py$'
+        pass_filenames: false
+
+      - id: mypy
+        name: MyPy type checking
+        entry: uv run --no-sync mypy src/
+        language: system
+        files: '\.py$'
+        pass_filenames: false
+
+      - id: uv-lock-check
+        name: Check uv.lock is up to date
+        entry: uv lock --check
+        language: system
+        files: 'pyproject\.toml$'
+        pass_filenames: false

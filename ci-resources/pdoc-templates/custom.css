@@ -1,0 +1,86 @@
+/* Force dark mode - override all pdoc defaults */
+:root {
+    --pdoc-background: #0d1117 !important;
+}
+
+body {
+    background-color: #0d1117 !important;
+    color: #c9d1d9 !important;
+}
+
+.pdoc {
+    --text: #c9d1d9 !important;
+    --muted: #8b949e !important;
+    --link: #58a6ff !important;
+    --link-hover: #79c0ff !important;
+    --code: #161b22 !important;
+    --active: #1f6feb !important;
+    --accent: #161b22 !important;
+    --accent2: #30363d !important;
+    --nav-hover: rgba(177, 186, 196, 0.12) !important;
+    --name: #7ee787 !important;
+    --def: #ff7b72 !important;
+    --annotation: #79c0ff !important;
+}
+
+/* Navigation */
+nav.pdoc {
+    background-color: #161b22 !important;
+    border-right-color: #30363d !important;
+}
+
+/* Code blocks */
+.pdoc-code {
+    background: #161b22 !important;
+}
+
+.pdoc code {
+    background-color: rgba(110, 118, 129, 0.2) !important;
+    color: #c9d1d9 !important;
+}
+
+.pdoc pre {
+    border-color: #30363d !important;
+    background-color: #161b22 !important;
+}
+
+/* Override Bootstrap's white background */
+pre code {
+    color: #c9d1d9 !important;
+}
+
+/* Better syntax highlighting for dark mode */
+.pdoc-code .c { color: #8b949e !important; }
+.pdoc-code .k { color: #ff7b72 !important; }
+.pdoc-code .s { color: #a5d6ff !important; }
+.pdoc-code .nc { color: #ffa657 !important; }
+.pdoc-code .nf { color: #d2a8ff !important; }
+.pdoc-code .nd { color: #ff7b72 !important; }
+.pdoc-code .nn { color: #ff7b72 !important; }
+.pdoc-code .nb { color: #79c0ff !important; }
+
+/* Headings */
+.pdoc h1, .pdoc h2, .pdoc h3, .pdoc h4, .pdoc h5, .pdoc h6 {
+    color: #c9d1d9 !important;
+}
+
+/* Tables */
+.pdoc table th, .pdoc table td {
+    border-color: #30363d !important;
+}
+
+/* Buttons */
+.pdoc .pdoc-button {
+    background-color: #21262d !important;
+    border-color: #30363d !important;
+    color: #c9d1d9 !important;
+}
+
+.pdoc .pdoc-button:hover {
+    background-color: #30363d !important;
+}
+
+/* View source button hover */
+.pdoc .view-value-button:hover {
+    background: #30363d !important;
+}
