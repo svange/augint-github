@@ -1,12 +1,14 @@
 ---
 name: ai-monitor-pipeline
-description: Monitor CI pipeline after push, diagnose failures, auto-fix and re-push. Use after submitting work or to check pipeline status.
+description: Monitor CI pipeline after push, diagnose failures, auto-fix and re-push. Use after submitting work, or asking 'check the build' or 'how's the pipeline'.
 argument-hint: "[run-id or branch-name]"
 ---
 
 Monitor CI pipeline, diagnose failures, and auto-fix when possible: $ARGUMENTS
 
-Watches the pipeline run, parses failures, attempts auto-fixes for common issues, and re-pushes with user approval.
+> **Workflow automation:** This skill is part of an automated workflow. Auto-push trivial formatting/whitespace fixes without asking. Only ask for approval when fixes involve substantive code changes. Report what was fixed but do not gate on user confirmation for mechanical fixes.
+
+Watches the pipeline run, parses failures, attempts auto-fixes for common issues, and re-pushes automatically for trivial fixes.
 
 ## Usage Examples
 - `/ai-monitor-pipeline` - Monitor latest run on current branch
@@ -85,7 +87,43 @@ Jobs:
 PR status: ready to merge (automerge enabled)
 ```
 
-Done. No further action needed.
+### Post-Merge Cleanup
+
+After pipeline passes, check if the PR has been merged (automerge may complete quickly):
+
+```bash
+PR_STATE=$(gh pr view --json state -q .state 2>/dev/null)
+```
+
+If `PR_STATE` is `MERGED`:
+
+1. **Check for dirty working directory:**
+   ```bash
+   if [ -n "$(git status --porcelain)" ]; then
+       echo "You have uncommitted changes. Skipping cleanup."
+       # Report success but do NOT switch branches
+   fi
+   ```
+
+2. **If clean, auto-cleanup:**
+   ```bash
+   BASE=$TARGET  # detected via branch detection algorithm from CLAUDE.md
+   CURRENT=$(git branch --show-current)
+   git checkout $BASE && git pull origin $BASE && git branch -d $CURRENT
+   ```
+
+3. **Report:**
+   ```
+   Pipeline PASSED. PR merged.
+   Cleaned up: deleted local branch feat/issue-42-auth
+   Now on: main (up to date)
+
+   Suggested next step: /ai-pick-issue
+   ```
+
+If PR has NOT merged yet (waiting for automerge or review): just report pipeline success and stop.
+
+Skip cleanup if `--no-cleanup` was passed as an argument.
 
 ## 4. On Failure - Diagnose
 
@@ -105,13 +143,14 @@ gh run view $RUN_ID --log-failed
 **Auto-fixable failures** (skill will attempt to fix):
 - **Pre-commit failures**: formatting (ruff-format), whitespace (trailing-whitespace, end-of-file-fixer), import ordering (ruff check --fix)
 - **Lint errors with auto-fix**: ruff, eslint with --fix
+- **MyPy errors**: fix actual types (NEVER use `# type: ignore` or `Any` as escape hatches). If only escape-hatch fix is available, reclassify as NOT auto-fixable.
+- **uv-lock-check failures**: run `uv lock` to regenerate
 
 **NOT auto-fixable** (skill reports and stops):
 - **Test failures**: require understanding business logic
 - **Security vulnerabilities**: bandit findings, pip-audit CVEs require judgment
 - **License compliance**: dependency decisions needed
 - **Build/compilation errors**: syntax errors, broken imports in non-trivial code
-- **MyPy errors**: type system changes require architectural decisions
 - **Release job failures**: should never be triggered from feature branches
 
 ### Failure Report
@@ -135,7 +174,7 @@ Failed jobs:
 - Maximum 2 fix attempts total
 - If same failure type repeats after a fix: stop immediately
 - Never modify the same file more than twice across all attempts
-- Always require user approval before pushing
+- Auto-push trivial fixes (formatting/whitespace); require approval only for substantive changes
 
 **Track state:**
 ```python
@@ -167,12 +206,24 @@ For each auto-fixable failure:
    # Must pass now
    ```
 
-3. **Show the diff and ask for approval:**
+3. **Categorize the fix and decide whether to auto-push:**
+
+   **Trivial fixes (auto-push without asking):** formatting (ruff-format, black, prettier), whitespace (trailing-whitespace, end-of-file-fixer), import sorting (isort, ruff I-rules). These are mechanical and deterministic.
+
    ```
-   Fix attempt #1:
+   Fix attempt #1 (auto-pushed):
    Files modified:
      - src/auth.py (formatting)
      - src/utils.py (trailing whitespace)
+   ```
+
+   For trivial fixes: commit and push immediately. Do NOT show the diff or ask for approval.
+
+   **Substantive fixes (ask before pushing):** any fix that changes logic, adds/removes code beyond whitespace, or modifies behavior. Show the diff and ask:
+   ```
+   Fix attempt #1 (requires approval):
+   Files modified:
+     - src/auth.py (logic change)
 
    Diff:
    [show git diff]
@@ -180,14 +231,27 @@ For each auto-fixable failure:
    Push these fixes? [y/n]
    ```
 
-4. **If approved, commit and push:**
+4. **Local smoke test before pushing:**
+
+   - **Trivial fixes** (formatting/whitespace only): run pre-commit locally as a smoke test (fast, 5-30 seconds):
+     ```bash
+     uv run pre-commit run --all-files
+     ```
+   - **Substantive fixes** (mypy, logic changes): run pre-commit + tests:
+     ```bash
+     uv run pre-commit run --all-files && uv run pytest --cov=src --cov-fail-under=80 -q
+     ```
+
+   If the local smoke test fails, report the issue to the user instead of pushing a known-broken state. This counts as one of the 2 fix attempts.
+
+5. **Commit and push:**
    ```bash
    git add -u
    git commit -m "fix: resolve pre-commit formatting issues"
    git push origin $(git branch --show-current)
    ```
 
-5. **Watch the new run:**
+6. **Watch the new run:**
    ```bash
    # Wait a moment for the new run to start
    sleep 5
@@ -195,7 +259,7 @@ For each auto-fixable failure:
    gh run watch $NEW_RUN_ID --exit-status
    ```
 
-6. **Check result:**
+7. **Check result:**
    - If passed: report success
    - If same failure: stop immediately ("Same failure after fix. Manual intervention needed.")
    - If different failure: attempt one more fix (if under max attempts)

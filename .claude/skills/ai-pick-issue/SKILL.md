@@ -1,10 +1,12 @@
 ---
 name: ai-pick-issue
-description: Find, analyze, and recommend GitHub issues to work on. Use when looking for issues, searching by keyword, or wanting recommendations on what to work on next.
+description: Find, analyze, and recommend GitHub issues to work on. Use when looking for issues, or asking 'what should I work on next'.
 argument-hint: "[issue-number or search-terms]"
 ---
 
 Intelligently find or select GitHub issues: $ARGUMENTS
+
+> **Workflow automation:** This skill is part of an automated workflow. When an issue is selected and the design conversation concludes, proceed directly to branch preparation by invoking `/ai-prepare-branch`. Do NOT prompt "shall I continue?" or "would you like me to run /ai-prepare-branch?" -- just do it.
 
 Smart issue finder that understands numbers, keywords, and natural language.
 
@@ -161,22 +163,39 @@ gh issue list --state open --label high-priority --json number,title,labels | jq
 
 ## 6. Collaborative Design Conversation
 
-After presenting the issue details, do NOT immediately suggest `/ai-prepare-branch`. Instead, engage the user in a focused design dialogue to establish shared understanding before implementation begins.
+After presenting the issue details, do NOT immediately suggest `/ai-prepare-branch`. Instead, engage the user in a design dialogue scaled to the issue's complexity.
+
+### Gauge Complexity
+
+Before starting, assess issue complexity from labels, body, and title:
+
+**Simple** (clear bug with repro steps, small config change, docs fix):
+- 0-1 questions max. Present approach briefly and proceed.
+- Signals: "bug" label, clear reproduction steps, single file mentioned, short body with clear intent.
+- **Exception**: if combined title+body is <100 characters AND lacks clear reproduction steps, ask at least 1 question (prevent proceeding on insufficient info).
+
+**Medium** (feature with mostly clear spec, refactor with known scope):
+- 2-3 targeted questions. Present approach and proceed.
+- Signals: "enhancement" label, moderate body, clear acceptance criteria.
+
+**Complex** (architectural change, unclear requirements, multiple approaches):
+- 3-5 questions. Full design dialogue with approach summary checkpoint.
+- Signals: "RFC" or "discussion" labels, multiple components mentioned, no clear acceptance criteria, security-sensitive.
+
+**Conflict resolution**: If signals conflict (e.g., "good-first-issue" + "security"), highest complexity wins.
 
 ### Initiate the Conversation
-
-Present a brief initial analysis of the issue, then ask targeted questions:
 
 1. **Summarize your understanding** of the issue in 2-3 sentences
 2. **Propose an implementation approach** - identify the key files, components, or architecture involved
 3. **Surface trade-offs and open questions** - flag ambiguities, alternative approaches, or constraints you see
-4. **Ask 2-4 specific clarifying questions**, such as:
+4. **Ask clarifying questions** (number based on complexity assessment above), such as:
    - Requirements: "The issue mentions X -- should that also handle Y?"
    - Scope: "Should this include Z, or is that a separate issue?"
    - Architecture: "I see two approaches here: A vs B. Which fits your codebase better?"
    - Constraints: "Are there performance/compatibility concerns I should know about?"
 
-### Continue the Dialogue
+### Continue the Dialogue (Medium/Complex only)
 
 - Listen to the user's answers and refine your understanding
 - Propose a more detailed plan when you have enough context
@@ -195,22 +214,17 @@ Files likely affected: [list]
 Out of scope: [what we're NOT doing]
 ```
 
-Then ask: **"Does this match your intent? Ready to proceed?"**
+Present this summary naturally as part of the conversation. If the user engages with questions or corrections, refine the approach. If the user signals agreement (or does not object), proceed to prepare the branch.
 
-Only after the user explicitly confirms should you suggest `/ai-prepare-branch`.
+Do NOT ask "Ready to proceed?" or wait for explicit confirmation. Treat the design summary as a natural checkpoint -- pause briefly for the user to react, then move forward.
 
-## 7. Final Output
+## 7. Final Output and Automatic Transition
 
 **IMPORTANT**:
 - Only recommend or list OPEN issues
 - If user specifies a closed issue number, show it but warn prominently
 - Never include closed issues in recommendation scoring
 
-To start working on an issue, use:
-```
-/ai-prepare-branch <issue-number>
-```
+**Automatic next step:** After the design conversation concludes (user agrees or does not object to the proposed approach), immediately invoke `/ai-prepare-branch <issue-number>` to create the branch. Do NOT just suggest it -- actually run it. The user expects the workflow to continue automatically.
 
-Examples:
-- `/ai-prepare-branch 123` - Create a branch for issue #123
-- `/ai-prepare-branch fix the auth bug` - Create a branch with description
+If no specific issue was selected (e.g., user was just browsing recommendations), present the recommendations and stop.
