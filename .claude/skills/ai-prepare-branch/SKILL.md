@@ -1,10 +1,12 @@
 ---
 name: ai-prepare-branch
-description: Create a feature branch from the correct base (dev or main), sync release bumps, and set up remote tracking. Use when starting work on an issue or new feature.
+description: Create a feature branch from the correct base (dev or main), sync release bumps, and set up remote tracking. Use when starting work on an issue or saying 'start working on'.
 argument-hint: "[issue-number, description, or branch-name]"
 ---
 
 Create a feature branch from the correct base with proper setup: $ARGUMENTS
+
+> **Workflow automation:** This skill is part of an automated workflow. Make autonomous decisions where safe: auto-continue past pipeline warnings, auto-select obvious branch names. Only stop and ask the user when there is a genuinely ambiguous or destructive situation (uncommitted work on a different task, merge conflicts, ambiguous branch naming with no issue context).
 
 Handles both issue-based and ad-hoc branch creation. Automatically detects whether the repo uses a dev/staging branch or only main.
 
@@ -31,7 +33,7 @@ git fetch --all --prune
 3. First match = dev branch. No match = main-only repo.
 
 ```bash
-# Auto-detect
+# Canonical algorithm -- see CLAUDE.md (Architecture > Branch Detection Algorithm)
 DEV_BRANCH=""
 for candidate in dev develop staging; do
     if git show-ref --verify --quiet refs/remotes/origin/$candidate; then
@@ -41,7 +43,7 @@ for candidate in dev develop staging; do
 done
 
 # Determine default branch
-DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@' 2>/dev/null || echo "main")
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
 ```
 
 If both `dev` and `develop` exist, use `dev` and warn: "Both origin/dev and origin/develop exist. Using origin/dev. Set `[workflow] dev_branch = 'develop'` in ai-shell.toml to override."
@@ -84,9 +86,9 @@ if ! git merge-base --is-ancestor origin/$DEFAULT_BRANCH origin/$DEV_BRANCH; the
     # Check if a CI/release pipeline is running on main
     MAIN_RUN_STATUS=$(gh run list --branch $DEFAULT_BRANCH --limit 1 --json status -q '.[0].status' 2>/dev/null)
     if [ "$MAIN_RUN_STATUS" = "in_progress" ] || [ "$MAIN_RUN_STATUS" = "queued" ]; then
-        echo "WARNING: A CI/release pipeline is running on main."
-        echo "Wait for it to complete before branching, or you may need to rebase later."
-        # Ask user: wait / continue anyway / abort
+        echo "NOTE: A CI/release pipeline is running on main. Proceeding anyway."
+        echo "You may need to rebase later if new commits land."
+        # Continue automatically -- do NOT ask wait/continue/abort
     fi
 
     # Attempt merge
@@ -184,6 +186,7 @@ Branch created: feat/issue-42-fix-auth-timeout
 Base: dev
 PR target: dev
 Remote tracking: origin/feat/issue-42-fix-auth-timeout
+Behind target: 0 commits (up to date)
 
 Next steps:
   - Make your changes
@@ -192,6 +195,8 @@ Next steps:
 
 Tip: Your commit messages will automatically reference issue #42.
 ```
+
+If "behind target" count is >0, add: "This is normal if the target branch has been active. It will be handled automatically when you submit."
 
 ## Error Handling
 - **Rebase/merge in progress**: Warn and suggest completing or aborting first

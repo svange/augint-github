@@ -1,6 +1,6 @@
 ---
 name: ai-repo-health
-description: Comprehensive repository health check with remote-first git hygiene, branch cleanup, and code quality analysis. Use for repo maintenance and cleanup.
+description: Comprehensive repository health check with remote-first git hygiene, branch cleanup, and code quality analysis. Use for repo maintenance, or saying 'clean up the repo'.
 argument-hint: "[--remote-only] [--local-only] [--dry-run]"
 ---
 

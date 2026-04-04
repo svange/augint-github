@@ -14,7 +14,7 @@
 
 - **No rebase on main**: NEVER use `git pull --rebase` or `git rebase` on the default branch. Use merge commits only.
 - **No manual versioning**: NEVER manually edit version numbers. Semantic Release manages versions via conventional commits.
-- **No lock file edits**: NEVER manually edit lock files (uv.lock, package-lock.json, poetry.lock, yarn.lock). They are auto-generated.
+- **No lock file edits**: NEVER directly write text into lock files (uv.lock, package-lock.json, poetry.lock, yarn.lock). Always use package manager commands (`uv lock`, `uv add`, `npm install`) to regenerate them.
 - **No .env commits**: NEVER commit .env files. Use .env.example for templates.
 - **No force push to main**: NEVER use `git push --force` on main or the default branch.
 
@@ -39,12 +39,13 @@ uv run pre-commit run --all-files            # Run all pre-commit hooks
 
 ## Development Workflow
 
-1. **Pick an issue**: Find or get assigned an issue to work on
-2. **Create a branch**: `git checkout -b feat/issue-N-description`
+**IMPORTANT**: Always follow this sequence. Do NOT skip to step 3 without completing step 2 first.
+
+1. **Pick an issue**: `/ai-pick-issue` -- find or get assigned work
+2. **Prepare branch**: `/ai-prepare-branch` -- REQUIRED before any code changes. Creates a fresh branch from the latest base (main or dev), syncs upstream, sets up remote tracking. Never start coding on an existing branch from a previous task.
 3. **Develop**: Write code with tests, following project conventions
-4. **Check**: Run `uv run pre-commit run --all-files` and `uv run pytest`
-5. **Submit**: Commit with conventional messages, create PR
-6. **Monitor**: Watch CI pipeline, fix any failures
+4. **Submit**: `/ai-submit-work` -- runs all checks locally, commits, pushes, creates automerge PR
+5. **Monitor**: `/ai-monitor-pipeline` -- watches CI, diagnoses failures, auto-fixes and re-pushes
 
 ## Key Commands
 

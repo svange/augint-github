@@ -88,7 +88,7 @@
       "matchDepTypes": ["project.optional-dependencies", "dependency-groups"],
       "matchManagers": ["pep621"],
       "matchUpdateTypes": ["patch", "minor"],
-      "commitMessagePrefix": "ci(deps-dev):",
+      "commitMessagePrefix": "chore(deps-dev):",
       "automerge": true,
       "groupName": "dev dependency updates",
       "groupSlug": "dev-deps"
@@ -99,7 +99,7 @@
       "matchDepTypes": ["project.optional-dependencies", "dependency-groups"],
       "matchManagers": ["pep621"],
       "matchUpdateTypes": ["major"],
-      "commitMessagePrefix": "ci(deps-dev):",
+      "commitMessagePrefix": "chore(deps-dev):",
       "automerge": false
     },
 
@@ -109,7 +109,7 @@
     {
       "matchPackageNames": ["python-semantic-release"],
       "automerge": false,
-      "commitMessagePrefix": "ci(deps-dev):"
+      "commitMessagePrefix": "chore(deps-dev):"
     },
 
     // ---------------------------------------------------------------
