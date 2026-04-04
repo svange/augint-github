@@ -22,10 +22,15 @@
         <h2>Pip-Audit Results</h2>
         <pre id="audit-content"></pre>
     </div>
+    <div class="report">
+        <h2>Semgrep SAST Results</h2>
+        <pre id="semgrep-content"></pre>
+    </div>
     <script>
         const reports = [
             {id: 'bandit-content', file: 'bandit-report.json'},
-            {id: 'audit-content', file: 'pip-audit-report.json'}
+            {id: 'audit-content', file: 'pip-audit-report.json'},
+            {id: 'semgrep-content', file: 'semgrep-results.sarif'}
         ];
         reports.forEach(report => {
             fetch(report.file)
