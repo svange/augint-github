@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from importlib.resources import files
 
 from dotenv import load_dotenv
@@ -7,6 +8,13 @@ from github import Auth, Github
 from github.GithubException import UnknownObjectException
 from github.Repository import Repository
 from loguru import logger
+
+
+def configure_logging(verbose: bool) -> None:
+    """Configure loguru: silent by default, compact format with --verbose."""
+    logger.remove()
+    if verbose:
+        logger.add(sys.stderr, level="DEBUG", format="  {message}")
 
 
 def load_env_config(filename: str = ".env") -> tuple[str, str, str]:

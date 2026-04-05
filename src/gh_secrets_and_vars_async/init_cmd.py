@@ -5,8 +5,8 @@ from rich import print
 from rich.panel import Panel
 from rich.table import Table
 
-from .common import get_github_repo, load_env_config
-from .config import set_auto_merge
+from .common import configure_logging, get_github_repo, load_env_config
+from .config import has_dev_branch, set_repo_settings
 from .push import perform_update
 from .rulesets import apply_template
 
@@ -103,6 +103,7 @@ def init_command(
     dry_run: bool,
 ):
     """Initialize a GitHub repository with rulesets, auto-merge, and secrets."""
+    configure_logging(verbose)
     import asyncio
 
     from .workflow import workflow_command
@@ -141,12 +142,14 @@ def init_command(
     summary.add_row("Repository", f"{gh_account}/{gh_repo}")
     summary.add_row("Type", repo_type)
 
-    # Step 4: Auto-merge
+    # Step 4: Repo settings (merge strategy, auto-merge, branch deletion)
     if not no_config:
-        set_auto_merge(repo, enabled=True, dry_run=dry_run)
-        summary.add_row("Auto-merge", "enabled")
+        dev = has_dev_branch(repo)
+        set_repo_settings(repo, delete_branch_on_merge=not dev, dry_run=dry_run)
+        summary.add_row("Merge strategy", "merge commits only")
+        summary.add_row("Delete branch on merge", str(not dev))
     else:
-        summary.add_row("Auto-merge", "skipped")
+        summary.add_row("Repo settings", "skipped")
 
     # Step 5: Rulesets
     if not no_rulesets:

@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
@@ -93,17 +93,24 @@ def _make_test_command(func):
 class TestInitCommandCLI:
     @patch("gh_secrets_and_vars_async.init_cmd.perform_update")
     @patch("gh_secrets_and_vars_async.init_cmd.apply_template")
-    @patch("gh_secrets_and_vars_async.init_cmd.set_auto_merge")
+    @patch("gh_secrets_and_vars_async.init_cmd.set_repo_settings")
+    @patch("gh_secrets_and_vars_async.init_cmd.has_dev_branch")
     @patch("gh_secrets_and_vars_async.init_cmd.get_github_repo")
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
     def test_init_all_skip(
-        self, mock_ensure, mock_env, mock_get_repo, mock_auto, mock_rulesets, mock_push
+        self,
+        mock_ensure,
+        mock_env,
+        mock_get_repo,
+        mock_has_dev,
+        mock_settings,
+        mock_rulesets,
+        mock_push,
     ):
         mock_ensure.return_value = ".env"
         mock_env.return_value = ("repo", "account", "token")
         repo = MagicMock()
-        type(repo).allow_auto_merge = PropertyMock(return_value=False)
         mock_get_repo.return_value = repo
 
         runner = CliRunner()
@@ -121,12 +128,13 @@ class TestInitCommandCLI:
         )
         assert result.exit_code == 0
         mock_rulesets.assert_not_called()
-        mock_auto.assert_not_called()
+        mock_settings.assert_not_called()
         mock_push.assert_not_called()
 
     @patch("gh_secrets_and_vars_async.init_cmd.perform_update")
     @patch("gh_secrets_and_vars_async.init_cmd.apply_template")
-    @patch("gh_secrets_and_vars_async.init_cmd.set_auto_merge")
+    @patch("gh_secrets_and_vars_async.init_cmd.set_repo_settings")
+    @patch("gh_secrets_and_vars_async.init_cmd.has_dev_branch")
     @patch("gh_secrets_and_vars_async.init_cmd.get_github_repo")
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
@@ -135,7 +143,8 @@ class TestInitCommandCLI:
         mock_ensure,
         mock_env,
         mock_get_repo,
-        mock_auto,
+        mock_has_dev,
+        mock_settings,
         mock_rulesets,
         mock_push,
         tmp_path,
@@ -145,8 +154,8 @@ class TestInitCommandCLI:
         mock_ensure.return_value = ".env"
         mock_env.return_value = ("repo", "account", "token")
         repo = MagicMock()
-        type(repo).allow_auto_merge = PropertyMock(return_value=False)
         mock_get_repo.return_value = repo
+        mock_has_dev.return_value = False
         mock_rulesets.return_value = [{"name": "test"}]
 
         mock_push.return_value = {"SECRETS": [], "VARIABLES": []}
@@ -154,7 +163,7 @@ class TestInitCommandCLI:
         runner = CliRunner()
         result = runner.invoke(init_command, ["--type", "library", "--dry-run"])
         assert result.exit_code == 0
-        mock_auto.assert_called_once()
+        mock_settings.assert_called_once()
         mock_rulesets.assert_called_once()
 
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")

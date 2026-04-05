@@ -21,8 +21,10 @@ class TestLoadTemplate:
                 checks = rule["parameters"]["required_status_checks"]
         assert checks is not None
         check_names = [c["context"] for c in checks]
-        assert "Integration tests" in check_names
-        assert "Smoke tests" in check_names
+        assert "Pre-commit checks" in check_names
+        assert "Security scanning" in check_names
+        assert "Unit tests" in check_names
+        assert "License compliance" in check_names
 
     def test_load_ruleset_publishable_library(self):
         template = load_template("rulesets", "publishable_library")
@@ -57,7 +59,7 @@ class TestLoadTemplate:
             template = load_template("rulesets", name)
             bypass = template.get("bypass_actors", [])
             actor_types = [b["actor_type"] for b in bypass]
-            assert "OrganizationAdmin" in actor_types, f"{name} missing OrgAdmin bypass"
+            assert "RepositoryRole" in actor_types, f"{name} missing Maintain bypass"
             assert "DeployKey" in actor_types, f"{name} missing DeployKey bypass"
 
     def test_all_rulesets_have_deletion_protection(self):

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from loguru import logger
 from rich import print
 
-from .common import get_github_repo
+from .common import configure_logging, get_github_repo
 
 
 @click.command("sync")
@@ -24,6 +24,7 @@ def push_command(verbose: bool, dry_run: bool, filename: click.Path):
     Sensitive keys (containing TOKEN, SECRET, KEY, etc.) become GitHub secrets;
     all others become GitHub variables.
     """
+    configure_logging(verbose)
     if dry_run:
         logger.info("Dry run mode enabled. No changes will be made to GitHub.")
     results = asyncio.run(perform_update(filename, verbose, dry_run))
