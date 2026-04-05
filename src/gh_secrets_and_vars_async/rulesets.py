@@ -4,7 +4,7 @@ from rich import print
 from rich.panel import Panel
 from rich.table import Table
 
-from .common import get_github_repo, load_env_config, load_template
+from .common import configure_logging, get_github_repo, load_env_config, load_template
 
 
 def get_rulesets(repo) -> list[dict]:
@@ -37,35 +37,10 @@ def delete_all_rulesets(repo, dry_run: bool = False) -> int:
     return count
 
 
-def _adapt_bypass_actors(repo, payload: dict) -> dict:
-    """Adapt bypass actors based on whether the repo is owned by a user or org.
-
-    OrganizationAdmin is only valid for org repos. For personal repos,
-    replace it with RepositoryRole Admin (id=5).
-    """
-    bypass = payload.get("bypass_actors", [])
-    if not bypass:
-        return payload
-
-    is_org = repo.owner.type == "Organization"
-    if is_org:
-        return payload
-
-    adapted = []
-    for actor in bypass:
-        if actor.get("actor_type") == "OrganizationAdmin":
-            adapted.append({"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"})
-        else:
-            adapted.append(actor)
-    payload["bypass_actors"] = adapted
-    return payload
-
-
 def create_ruleset(repo, template: dict, dry_run: bool = False) -> dict | None:
     """Create a new ruleset from a template dict."""
     # Remove fields that are repo-specific metadata, not part of the creation payload
     payload = {k: v for k, v in template.items() if k not in ("id", "source_type", "source")}
-    payload = _adapt_bypass_actors(repo, payload)
     if dry_run:
         logger.info(f"[DRY RUN] Would create ruleset: {payload.get('name', 'unknown')}")
         return payload
@@ -163,6 +138,7 @@ def display_rulesets(rulesets: list[dict]) -> None:
 )
 def rulesets_command(view: bool, apply_template_name: str | None, verbose: bool, dry_run: bool):
     """View or apply branch rulesets to a GitHub repository."""
+    configure_logging(verbose)
     gh_repo, gh_account, gh_token = load_env_config()
     if not gh_repo or not gh_account:
         raise click.ClickException("GH_REPO and GH_ACCOUNT must be set in .env or environment.")

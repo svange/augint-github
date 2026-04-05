@@ -8,6 +8,7 @@ class TestCLIGroup:
         runner = CliRunner()
         result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0
+        assert "chezmoi" in result.output
         assert "sync" in result.output
         assert "rulesets" in result.output
         assert "config" in result.output
@@ -52,6 +53,13 @@ class TestCLIGroup:
         result = runner.invoke(main, ["init", "--help"])
         assert result.exit_code == 0
         assert "rulesets" in result.output.lower() or "initialize" in result.output.lower()
+
+    def test_chezmoi_help(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["chezmoi", "--help"])
+        assert result.exit_code == 0
+        assert "chezmoi" in result.output.lower()
+        assert "--no-sync" in result.output
 
     def test_unknown_command(self):
         runner = CliRunner()

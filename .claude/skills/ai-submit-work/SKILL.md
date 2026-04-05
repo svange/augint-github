@@ -328,9 +328,10 @@ gh pr create \
 ## Issue
 <Closes #N or Refs #N if applicable>"
 
-# Set automerge
+# Set automerge -- use --merge (not --squash) to preserve commit ancestry
+# for clean promotion and release sync across long-lived branches
 PR_NUMBER=$(gh pr view --json number -q .number)
-gh pr merge --auto --squash $PR_NUMBER
+gh pr merge --auto --merge $PR_NUMBER
 ```
 
 ## 8. Final Output and Automatic Transition
@@ -340,7 +341,7 @@ Submitted: feat(cli): add metrics dashboard endpoint
 
 PR: https://github.com/owner/repo/pull/99
 Target: dev
-Automerge: enabled (squash)
+Automerge: enabled (merge)
 Status checks: monitoring...
 ```
 

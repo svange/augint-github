@@ -26,10 +26,10 @@ class TestExpectedCheckNames:
 
     def test_iac_checks(self):
         names = _expected_check_names("iac")
-        assert "Build validation" in names
-        assert "Integration tests" in names
-        assert "Smoke tests" in names
         assert "Pre-commit checks" in names
+        assert "Security scanning" in names
+        assert "Unit tests" in names
+        assert "License compliance" in names
 
 
 class TestExtractPipelineJobNames:

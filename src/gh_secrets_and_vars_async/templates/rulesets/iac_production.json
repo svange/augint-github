@@ -24,21 +24,19 @@
           {"context": "Pre-commit checks"},
           {"context": "Security scanning"},
           {"context": "Unit tests"},
-          {"context": "Build validation"},
-          {"context": "Integration tests"},
-          {"context": "Smoke tests"}
+          {"context": "License compliance"}
         ]
       }
     }
   ],
   "bypass_actors": [
     {
-      "actor_id": null,
-      "actor_type": "OrganizationAdmin",
+      "actor_type": "DeployKey",
       "bypass_mode": "always"
     },
     {
-      "actor_type": "DeployKey",
+      "actor_id": 4,
+      "actor_type": "RepositoryRole",
       "bypass_mode": "always"
     }
   ]

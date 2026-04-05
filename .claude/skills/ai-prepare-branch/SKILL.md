@@ -60,7 +60,27 @@ Report: "Repo pattern: [dev-based|main-only]. Base branch: [branch]. PR target: 
 CURRENT_BRANCH=$(git branch --show-current)
 ```
 
-**Three-state check:**
+**First: detect already-merged work branches.**
+
+If on a work branch (not main/dev/staging), check whether its PR was already merged:
+
+```bash
+MERGED_PR=$(gh pr list --head $CURRENT_BRANCH --state merged --json number -q '.[0].number' 2>/dev/null)
+```
+
+If `MERGED_PR` is non-empty, this branch is stale (merged PRs + semantic-release version bumps create new commits on the target, so the old branch diverges). Handle automatically:
+
+- **No uncommitted changes**: Report "Branch $CURRENT_BRANCH was merged via PR #$MERGED_PR. Switching to $BASE." Then `git checkout $BASE` and `git branch -D $CURRENT_BRANCH`. Proceed to step 4.
+- **Uncommitted changes present**: These are new work started on a stale branch. Stash, switch, delete:
+  ```bash
+  git stash push -m "WIP: New work from stale branch $CURRENT_BRANCH"
+  git checkout $BASE
+  git branch -D $CURRENT_BRANCH
+  ```
+  Report: "Branch $CURRENT_BRANCH was merged via PR #$MERGED_PR. Stashed your uncommitted changes and switched to $BASE. Changes will be unstashed onto the new branch."
+  After step 6 (new branch created), run `git stash pop`.
+
+**Then: three-state check (only reached if branch was NOT already merged):**
 
 1. **On main/dev** - proceed normally (happy path)
 2. **On a work branch with no uncommitted changes and no unpushed commits** - offer to switch
