@@ -210,6 +210,33 @@ Verify:
 - Coverage reports uploaded
 - Retention days set (recommend 1-7 days for CI artifacts)
 
+## 9. Lock File Integrity in CI
+
+### Python repos (uv)
+
+Search for `uv sync` commands in workflow files:
+```bash
+grep -n "uv sync" .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
+```
+
+Validate:
+- **CI install steps** (`uv sync`) must use `--frozen` flag to fail if `uv.lock` is out of date with `pyproject.toml`
+  - Correct: `uv sync --frozen --all-extras`
+  - Wrong: `uv sync --all-extras` (silently updates lock file in CI)
+- **Exception**: A release job that modifies `pyproject.toml` (e.g., semantic-release version bump) and then re-installs may legitimately need `uv sync` without `--frozen` after the bump
+- If `uv sync` calls lack `--frozen`: flag as **ERROR** and show the fix
+
+### Node repos (npm)
+
+Search for `npm install` commands:
+```bash
+grep -n "npm install\|npm ci" .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
+```
+
+Validate:
+- CI should use `npm ci` (not `npm install`) -- `npm ci` installs from the lock file exactly
+- If `npm install` found in CI: flag as **ERROR**, recommend `npm ci`
+
 ## Error Handling
 
 - **No workflows found**: Abort -- repo may not use GitHub Actions
@@ -242,6 +269,10 @@ Pipeline Safety:
   [PASS] Concurrency: cancel-in-progress: false (correct for infra)
   [WARN] CVE ignores use CVE format -- recommend GHSA identifiers
   [WARN] No quarterly CVE review workflow found
+
+Lock File Integrity:
+  [PASS] uv sync uses --frozen in all CI jobs
+  [FAIL] npm install found in build job -- use npm ci instead
 
 Artifacts:
   [PASS] Bandit report uploaded

@@ -1,0 +1,61 @@
+{
+  "id": 14209475,
+  "name": "Publishable library",
+  "target": "branch",
+  "source_type": "Repository",
+  "source": "Augmenting-Integrations/ai-lls-lib",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "~DEFAULT_BRANCH"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "Security scanning",
+            "integration_id": 15368
+          },
+          {
+            "context": "License compliance",
+            "integration_id": 15368
+          },
+          {
+            "context": "Unit tests",
+            "integration_id": 15368
+          },
+          {
+            "context": "Pre-commit checks",
+            "integration_id": 15368
+          }
+        ]
+      }
+    }
+  ],
+  "bypass_actors": [
+    {
+      "actor_id": null,
+      "actor_type": "OrganizationAdmin",
+      "bypass_mode": "always"
+    },
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "always"
+    }
+  ]
+}

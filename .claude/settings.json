@@ -196,7 +196,14 @@
       "Bash(cat .env:*)",
       "Read(.env)",
       "Read(.env.*)",
-      "Bash(sed -i:*)"
+      "Bash(sed -i:*)",
+      "Write(uv.lock)",
+      "Edit(uv.lock)",
+      "Bash(cat .env)",
+      "Bash(cat .env :*)",
+      "Bash(cat .env.local:*)",
+      "Read(.env.local)",
+      "Read(.env.*.local)"
     ]
   },
   "enableAllProjectMcpServers": false,
