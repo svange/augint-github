@@ -47,29 +47,37 @@ def sample_rulesets():
 
 class TestGetRulesets:
     def test_get_rulesets(self, mock_repo, sample_rulesets):
-        mock_repo._requester.requestJsonAndCheck.return_value = ({}, sample_rulesets)
+        # List endpoint returns summaries, then detail endpoint returns full data
+        summaries = [{"id": 123, "name": "Test ruleset"}]
+        mock_repo._requester.requestJsonAndCheck.side_effect = [
+            ({}, summaries),  # GET /rulesets (list)
+            ({}, sample_rulesets[0]),  # GET /rulesets/123 (detail)
+        ]
         result = get_rulesets(mock_repo)
-        assert result == sample_rulesets
-        mock_repo._requester.requestJsonAndCheck.assert_called_once_with(
-            "GET", f"{mock_repo.url}/rulesets"
-        )
+        assert len(result) == 1
+        assert result[0]["name"] == "Test ruleset"
+        assert mock_repo._requester.requestJsonAndCheck.call_count == 2
 
 
 class TestDeleteAllRulesets:
     def test_delete_all(self, mock_repo, sample_rulesets):
         mock_repo._requester.requestJsonAndCheck.side_effect = [
-            ({}, sample_rulesets),  # GET rulesets
+            ({}, [{"id": 123, "name": "Test ruleset"}]),  # GET list
+            ({}, sample_rulesets[0]),  # GET detail
             ({}, None),  # DELETE ruleset 123
         ]
         count = delete_all_rulesets(mock_repo)
         assert count == 1
 
     def test_delete_all_dry_run(self, mock_repo, sample_rulesets):
-        mock_repo._requester.requestJsonAndCheck.return_value = ({}, sample_rulesets)
+        mock_repo._requester.requestJsonAndCheck.side_effect = [
+            ({}, [{"id": 123, "name": "Test ruleset"}]),  # GET list
+            ({}, sample_rulesets[0]),  # GET detail
+        ]
         count = delete_all_rulesets(mock_repo, dry_run=True)
         assert count == 1
-        # Only GET call, no DELETE
-        assert mock_repo._requester.requestJsonAndCheck.call_count == 1
+        # GET list + GET detail, no DELETE
+        assert mock_repo._requester.requestJsonAndCheck.call_count == 2
 
     def test_delete_all_empty(self, mock_repo):
         mock_repo._requester.requestJsonAndCheck.return_value = ({}, [])
@@ -113,7 +121,7 @@ class TestCreateRuleset:
 class TestApplyTemplate:
     def test_apply_library(self, mock_repo):
         mock_repo._requester.requestJsonAndCheck.side_effect = [
-            ({}, []),  # GET (delete_all)
+            ({}, []),  # GET list (delete_all -> get_rulesets, empty)
             ({}, {"id": 1, "name": "Publishable library"}),  # POST
         ]
         results = apply_template(mock_repo, "library")
@@ -121,7 +129,7 @@ class TestApplyTemplate:
 
     def test_apply_iac(self, mock_repo):
         mock_repo._requester.requestJsonAndCheck.side_effect = [
-            ({}, []),  # GET (delete_all)
+            ({}, []),  # GET list (delete_all, empty)
             ({}, {"id": 1, "name": "IaC Dev gate"}),  # POST dev
             ({}, {"id": 2, "name": "IaC Production gate"}),  # POST prod
         ]
@@ -134,16 +142,16 @@ class TestApplyTemplate:
             apply_template(mock_repo, "unknown")
 
     def test_apply_deletes_existing_first(self, mock_repo):
-        existing = [{"id": 99, "name": "old"}]
         mock_repo._requester.requestJsonAndCheck.side_effect = [
-            ({}, existing),  # GET
+            ({}, [{"id": 99, "name": "old"}]),  # GET list
+            ({}, {"id": 99, "name": "old"}),  # GET detail
             ({}, None),  # DELETE 99
             ({}, {"id": 1, "name": "Publishable library"}),  # POST
         ]
         results = apply_template(mock_repo, "library")
         assert len(results) == 1
         calls = mock_repo._requester.requestJsonAndCheck.call_args_list
-        assert calls[1][0] == ("DELETE", f"{mock_repo.url}/rulesets/99")
+        assert calls[2][0] == ("DELETE", f"{mock_repo.url}/rulesets/99")
 
 
 class TestDisplayRulesets:

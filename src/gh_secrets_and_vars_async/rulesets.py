@@ -8,9 +8,19 @@ from .common import get_github_repo, load_env_config, load_template
 
 
 def get_rulesets(repo) -> list[dict]:
-    """Fetch all rulesets for the repository."""
-    _headers, data = repo._requester.requestJsonAndCheck("GET", f"{repo.url}/rulesets")
-    return list(data)
+    """Fetch all rulesets for the repository with full details.
+
+    The list endpoint only returns summaries. We fetch each ruleset
+    individually to get conditions, rules, and bypass actors.
+    """
+    _headers, summaries = repo._requester.requestJsonAndCheck("GET", f"{repo.url}/rulesets")
+    rulesets = []
+    for summary in summaries:
+        _h, detail = repo._requester.requestJsonAndCheck(
+            "GET", f"{repo.url}/rulesets/{summary['id']}"
+        )
+        rulesets.append(dict(detail))
+    return rulesets
 
 
 def delete_all_rulesets(repo, dry_run: bool = False) -> int:

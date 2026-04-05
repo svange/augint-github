@@ -73,73 +73,68 @@ class TestCheckAutoMerge:
 
 
 class TestCheckRulesets:
-    def test_matching_library(self):
+    @patch("gh_secrets_and_vars_async.status.get_rulesets")
+    def test_matching_library(self, mock_get):
         repo = MagicMock()
-        repo._requester.requestJsonAndCheck.return_value = (
-            {},
-            [
-                {
-                    "name": "Publishable library",
-                    "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
-                    "rules": [
-                        {"type": "deletion"},
-                        {"type": "non_fast_forward"},
-                        {
-                            "type": "required_status_checks",
-                            "parameters": {
-                                "required_status_checks": [
-                                    {"context": "Pre-commit checks"},
-                                    {"context": "Security scanning"},
-                                    {"context": "Unit tests"},
-                                    {"context": "License compliance"},
-                                ]
-                            },
+        mock_get.return_value = [
+            {
+                "name": "Publishable library",
+                "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
+                "rules": [
+                    {"type": "deletion"},
+                    {"type": "non_fast_forward"},
+                    {
+                        "type": "required_status_checks",
+                        "parameters": {
+                            "required_status_checks": [
+                                {"context": "Pre-commit checks"},
+                                {"context": "Security scanning"},
+                                {"context": "Unit tests"},
+                                {"context": "License compliance"},
+                            ]
                         },
-                    ],
-                }
-            ],
-        )
+                    },
+                ],
+            }
+        ]
         results = check_rulesets(repo, "library")
         statuses = [s for s, _ in results]
         assert PASS in statuses
         assert FAIL not in statuses
 
-    def test_missing_ruleset(self):
+    @patch("gh_secrets_and_vars_async.status.get_rulesets")
+    def test_missing_ruleset(self, mock_get):
         repo = MagicMock()
-        repo._requester.requestJsonAndCheck.return_value = ({}, [])
+        mock_get.return_value = []
         results = check_rulesets(repo, "library")
         assert any(s == FAIL and "Missing ruleset" in m for s, m in results)
 
-    def test_extra_ruleset(self):
+    @patch("gh_secrets_and_vars_async.status.get_rulesets")
+    def test_extra_ruleset(self, mock_get):
         repo = MagicMock()
-        repo._requester.requestJsonAndCheck.return_value = (
-            {},
-            [{"name": "Unknown ruleset", "conditions": {}, "rules": []}],
-        )
+        mock_get.return_value = [{"name": "Unknown ruleset", "conditions": {}, "rules": []}]
         results = check_rulesets(repo, "library")
         assert any(s == WARN and "Extra ruleset" in m for s, m in results)
 
-    def test_missing_status_check(self):
+    @patch("gh_secrets_and_vars_async.status.get_rulesets")
+    def test_missing_status_check(self, mock_get):
         repo = MagicMock()
-        repo._requester.requestJsonAndCheck.return_value = (
-            {},
-            [
-                {
-                    "name": "Publishable library",
-                    "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
-                    "rules": [
-                        {
-                            "type": "required_status_checks",
-                            "parameters": {
-                                "required_status_checks": [
-                                    {"context": "Unit tests"},
-                                ]
-                            },
-                        }
-                    ],
-                }
-            ],
-        )
+        mock_get.return_value = [
+            {
+                "name": "Publishable library",
+                "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
+                "rules": [
+                    {
+                        "type": "required_status_checks",
+                        "parameters": {
+                            "required_status_checks": [
+                                {"context": "Unit tests"},
+                            ]
+                        },
+                    }
+                ],
+            }
+        ]
         results = check_rulesets(repo, "library")
         assert any(s == FAIL and "missing status check" in m for s, m in results)
 
