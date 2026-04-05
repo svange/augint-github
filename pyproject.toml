@@ -18,6 +18,7 @@ dependencies = [
 Homepage = "https://github.com/svange/augint-github"
 
 [project.scripts]
+ai-gh = "gh_secrets_and_vars_async.cli:main"
 ai-gh-push = "gh_secrets_and_vars_async:cli"
 
 [project.optional-dependencies]
@@ -137,7 +138,7 @@ warn_unused_ignores = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-module = "gh_secrets_and_vars_async"
+module = "gh_secrets_and_vars_async.*"
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
