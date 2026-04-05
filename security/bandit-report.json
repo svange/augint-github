@@ -1,17 +1,17 @@
 {
   "errors": [],
-  "generated_at": "2026-04-05T03:12:48Z",
+  "generated_at": "2026-04-05T04:00:23Z",
   "metrics": {
     "_totals": {
-      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.HIGH": 2,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 1,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 1,
+      "SEVERITY.LOW": 3,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 736,
+      "loc": 862,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -28,6 +28,19 @@
       "nosec": 0,
       "skipped_tests": 0
     },
+    "src/gh_secrets_and_vars_async/chezmoi_cmd.py": {
+      "CONFIDENCE.HIGH": 2,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 2,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 80,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
     "src/gh_secrets_and_vars_async/cli.py": {
       "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
@@ -37,7 +50,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 19,
+      "loc": 21,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -50,7 +63,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 49,
+      "loc": 55,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -63,7 +76,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 39,
+      "loc": 92,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -76,7 +89,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 144,
+      "loc": 147,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -89,7 +102,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 128,
+      "loc": 129,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -102,7 +115,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 148,
+      "loc": 129,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -134,6 +147,46 @@
     }
   },
   "results": [
+    {
+      "code": "2 import shutil\n3 import subprocess\n4 from pathlib import Path\n",
+      "col_offset": 0,
+      "end_col_offset": 17,
+      "filename": "src/gh_secrets_and_vars_async/chezmoi_cmd.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 78,
+        "link": "https://cwe.mitre.org/data/definitions/78.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Consider possible security implications associated with the subprocess module.",
+      "line_number": 3,
+      "line_range": [
+        3
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess",
+      "test_id": "B404",
+      "test_name": "blacklist"
+    },
+    {
+      "code": "27     logger.debug(f\"Running: {cmd}\")\n28     result = subprocess.run(cmd, capture_output=True, text=True)\n29 \n",
+      "col_offset": 13,
+      "end_col_offset": 64,
+      "filename": "src/gh_secrets_and_vars_async/chezmoi_cmd.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 78,
+        "link": "https://cwe.mitre.org/data/definitions/78.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "subprocess call - check for execution of untrusted input.",
+      "line_number": 28,
+      "line_range": [
+        28
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
+      "test_id": "B603",
+      "test_name": "subprocess_without_shell_equals_true"
+    },
     {
       "code": "12 \n13 PASS = \"[green]PASS[/green]\"\n14 FAIL = \"[red]FAIL[/red]\"\n",
       "col_offset": 7,
