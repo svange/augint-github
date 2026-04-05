@@ -37,10 +37,35 @@ def delete_all_rulesets(repo, dry_run: bool = False) -> int:
     return count
 
 
+def _adapt_bypass_actors(repo, payload: dict) -> dict:
+    """Adapt bypass actors based on whether the repo is owned by a user or org.
+
+    OrganizationAdmin is only valid for org repos. For personal repos,
+    replace it with RepositoryRole Admin (id=5).
+    """
+    bypass = payload.get("bypass_actors", [])
+    if not bypass:
+        return payload
+
+    is_org = repo.owner.type == "Organization"
+    if is_org:
+        return payload
+
+    adapted = []
+    for actor in bypass:
+        if actor.get("actor_type") == "OrganizationAdmin":
+            adapted.append({"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"})
+        else:
+            adapted.append(actor)
+    payload["bypass_actors"] = adapted
+    return payload
+
+
 def create_ruleset(repo, template: dict, dry_run: bool = False) -> dict | None:
     """Create a new ruleset from a template dict."""
     # Remove fields that are repo-specific metadata, not part of the creation payload
     payload = {k: v for k, v in template.items() if k not in ("id", "source_type", "source")}
+    payload = _adapt_bypass_actors(repo, payload)
     if dry_run:
         logger.info(f"[DRY RUN] Would create ruleset: {payload.get('name', 'unknown')}")
         return payload

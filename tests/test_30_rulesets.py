@@ -5,6 +5,7 @@ import pytest
 from click.testing import CliRunner
 
 from gh_secrets_and_vars_async.rulesets import (
+    _adapt_bypass_actors,
     apply_template,
     create_ruleset,
     delete_all_rulesets,
@@ -18,6 +19,7 @@ from gh_secrets_and_vars_async.rulesets import (
 def mock_repo():
     repo = MagicMock()
     repo.url = "https://api.github.com/repos/testowner/testrepo"
+    repo.owner.type = "Organization"
     return repo
 
 
@@ -116,6 +118,54 @@ class TestCreateRuleset:
         result = create_ruleset(mock_repo, template, dry_run=True)
         assert result["name"] == "test"
         mock_repo._requester.requestJsonAndCheck.assert_not_called()
+
+
+class TestAdaptBypassActors:
+    def test_org_repo_keeps_org_admin(self):
+        repo = MagicMock()
+        repo.owner.type = "Organization"
+        payload = {
+            "bypass_actors": [
+                {"actor_id": None, "actor_type": "OrganizationAdmin", "bypass_mode": "always"},
+                {"actor_type": "DeployKey", "bypass_mode": "always"},
+            ]
+        }
+        result = _adapt_bypass_actors(repo, payload)
+        types = [a["actor_type"] for a in result["bypass_actors"]]
+        assert "OrganizationAdmin" in types
+        assert "DeployKey" in types
+
+    def test_personal_repo_replaces_org_admin(self):
+        repo = MagicMock()
+        repo.owner.type = "User"
+        payload = {
+            "bypass_actors": [
+                {"actor_id": None, "actor_type": "OrganizationAdmin", "bypass_mode": "always"},
+                {"actor_type": "DeployKey", "bypass_mode": "always"},
+            ]
+        }
+        result = _adapt_bypass_actors(repo, payload)
+        types = [a["actor_type"] for a in result["bypass_actors"]]
+        assert "OrganizationAdmin" not in types
+        assert "RepositoryRole" in types
+        assert "DeployKey" in types
+        # Verify it's Admin role (id=5)
+        role_actor = [a for a in result["bypass_actors"] if a["actor_type"] == "RepositoryRole"][0]
+        assert role_actor["actor_id"] == 5
+
+    def test_no_bypass_actors(self):
+        repo = MagicMock()
+        repo.owner.type = "User"
+        payload = {"name": "test"}
+        result = _adapt_bypass_actors(repo, payload)
+        assert "bypass_actors" not in result
+
+    def test_empty_bypass_actors(self):
+        repo = MagicMock()
+        repo.owner.type = "User"
+        payload = {"bypass_actors": []}
+        result = _adapt_bypass_actors(repo, payload)
+        assert result["bypass_actors"] == []
 
 
 class TestApplyTemplate:
