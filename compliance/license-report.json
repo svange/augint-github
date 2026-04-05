@@ -57,12 +57,12 @@
   {
     "License": "MIT",
     "Name": "augint-github",
-    "Version": "1.3.4"
+    "Version": "1.3.5"
   },
   {
     "License": "UNKNOWN",
     "Name": "augint-shell",
-    "Version": "0.22.1"
+    "Version": "0.24.0"
   },
   {
     "License": "Apache-2.0",
