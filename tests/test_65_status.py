@@ -30,6 +30,7 @@ class TestExpectedCheckNames:
         assert "Security scanning" in names
         assert "Unit tests" in names
         assert "License compliance" in names
+        assert "Build validation" in names
 
 
 class TestExtractPipelineJobNames:
@@ -180,6 +181,27 @@ class TestCheckPipelineStages:
         (workflows / "pipeline.yaml").write_text("jobs:\n  a:\n    name: Unit tests\n")
         results = check_pipeline_stages("library")
         assert any(s == FAIL and "Missing pipeline stage" in m for s, m in results)
+
+    def test_all_present_iac(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        workflows = tmp_path / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        (workflows / "pipeline.yaml").write_text(
+            "jobs:\n"
+            "  a:\n"
+            "    name: Pre-commit checks\n"
+            "  b:\n"
+            "    name: Security scanning\n"
+            "  c:\n"
+            "    name: Unit tests\n"
+            "  d:\n"
+            "    name: License compliance\n"
+            "  e:\n"
+            "    name: Build validation\n"
+        )
+        results = check_pipeline_stages("iac")
+        assert any(s == PASS for s, _ in results)
+        assert not any(s == FAIL for s, _ in results)
 
     def test_no_pipeline(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

@@ -25,6 +25,7 @@ class TestLoadTemplate:
         assert "Security scanning" in check_names
         assert "Unit tests" in check_names
         assert "License compliance" in check_names
+        assert "Build validation" in check_names
 
     def test_load_ruleset_publishable_library(self):
         template = load_template("rulesets", "publishable_library")
@@ -47,6 +48,7 @@ class TestLoadTemplate:
         content = load_template("workflows", "iac_pipeline")
         assert isinstance(content, str)
         assert "Build validation" in content
+        assert "License compliance" in content
         assert "Integration tests" in content
         assert "Smoke tests" in content
 

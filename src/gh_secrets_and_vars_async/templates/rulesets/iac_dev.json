@@ -24,7 +24,8 @@
           {"context": "Pre-commit checks"},
           {"context": "Security scanning"},
           {"context": "Unit tests"},
-          {"context": "License compliance"}
+          {"context": "License compliance"},
+          {"context": "Build validation"}
         ]
       }
     }
