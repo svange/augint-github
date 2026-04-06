@@ -5,7 +5,7 @@ import click
 from rich import print
 from rich.table import Table
 
-from .common import get_github_repo, load_env_config, load_template
+from .common import get_github_repo, load_env_config, load_template, normalize_type
 from .config import get_auto_merge_status
 from .init_cmd import detect_repo_type
 from .rulesets import get_rulesets
@@ -17,10 +17,10 @@ WARN = "[yellow]WARN[/yellow]"
 
 def _expected_check_names(repo_type: str) -> set[str]:
     """Get the set of expected status check context names for a repo type."""
-    if repo_type == "iac":
-        template_names = ["iac_dev", "iac_production"]
+    if repo_type == "service":
+        template_names = ["service_dev", "service_production"]
     else:
-        template_names = ["publishable_library"]
+        template_names = ["library"]
 
     names: set[str] = set()
     for tname in template_names:
@@ -34,12 +34,12 @@ def _expected_check_names(repo_type: str) -> set[str]:
 
 def _expected_rulesets(repo_type: str) -> list[dict]:
     """Load expected ruleset templates for a repo type."""
-    if repo_type == "iac":
+    if repo_type == "service":
         return [
-            load_template("rulesets", "iac_dev"),  # type: ignore[list-item]
-            load_template("rulesets", "iac_production"),  # type: ignore[list-item]
+            load_template("rulesets", "service_dev"),  # type: ignore[list-item]
+            load_template("rulesets", "service_production"),  # type: ignore[list-item]
         ]
-    return [load_template("rulesets", "publishable_library")]  # type: ignore[list-item]
+    return [load_template("rulesets", "library")]  # type: ignore[list-item]
 
 
 def _extract_pipeline_job_names(pipeline_path: Path) -> set[str]:
@@ -165,7 +165,7 @@ def check_pipeline_stages(repo_type: str) -> list[tuple[str, str]]:
 @click.option(
     "--type",
     "repo_type",
-    type=click.Choice(["iac", "library"]),
+    type=click.Choice(["service", "library", "iac"]),
     default=None,
     help="Repository type (auto-detected if not specified).",
 )
@@ -186,6 +186,7 @@ def status_command(repo_type: str | None, verbose: bool):
             repo_type = "library"
             print("[yellow]Could not auto-detect repo type, defaulting to 'library'[/yellow]")
 
+    repo_type = normalize_type(repo_type)
     print(f"\n[bold]Status: {gh_account}/{gh_repo}[/bold] (type: {repo_type})\n")
 
     table = Table(show_header=True, header_style="bold")

@@ -19,18 +19,20 @@ from gh_secrets_and_vars_async.status import (
 class TestExpectedCheckNames:
     def test_library_checks(self):
         names = _expected_check_names("library")
-        assert "Pre-commit checks" in names
+        assert "Code quality" in names
         assert "Security scanning" in names
         assert "Unit tests" in names
         assert "License compliance" in names
 
-    def test_iac_checks(self):
-        names = _expected_check_names("iac")
-        assert "Pre-commit checks" in names
+    def test_service_checks(self):
+        names = _expected_check_names("service")
+        assert "Code quality" in names
         assert "Security scanning" in names
         assert "Unit tests" in names
         assert "License compliance" in names
-        assert "Build validation" in names
+
+    def test_library_and_service_have_same_gates(self):
+        assert _expected_check_names("library") == _expected_check_names("service")
 
 
 class TestExtractPipelineJobNames:
@@ -39,14 +41,14 @@ class TestExtractPipelineJobNames:
         pipeline.write_text(
             "name: CI/CD Pipeline\n"
             "jobs:\n"
-            "  pre-commit:\n"
-            "    name: Pre-commit checks\n"
+            "  code-quality:\n"
+            "    name: Code quality\n"
             "    runs-on: ubuntu-latest\n"
             "  unit-tests:\n"
             "    name: Unit tests\n"
         )
         names = _extract_pipeline_job_names(pipeline)
-        assert names == {"Pre-commit checks", "Unit tests"}
+        assert names == {"Code quality", "Unit tests"}
 
     def test_nonexistent_file(self, tmp_path):
         names = _extract_pipeline_job_names(tmp_path / "missing.yaml")
@@ -79,7 +81,7 @@ class TestCheckRulesets:
         repo = MagicMock()
         mock_get.return_value = [
             {
-                "name": "Publishable library",
+                "name": "Library",
                 "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
                 "rules": [
                     {"type": "deletion"},
@@ -88,7 +90,7 @@ class TestCheckRulesets:
                         "type": "required_status_checks",
                         "parameters": {
                             "required_status_checks": [
-                                {"context": "Pre-commit checks"},
+                                {"context": "Code quality"},
                                 {"context": "Security scanning"},
                                 {"context": "Unit tests"},
                                 {"context": "License compliance"},
@@ -122,7 +124,7 @@ class TestCheckRulesets:
         repo = MagicMock()
         mock_get.return_value = [
             {
-                "name": "Publishable library",
+                "name": "Library",
                 "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
                 "rules": [
                     {
@@ -163,7 +165,7 @@ class TestCheckPipelineStages:
         (workflows / "pipeline.yaml").write_text(
             "jobs:\n"
             "  a:\n"
-            "    name: Pre-commit checks\n"
+            "    name: Code quality\n"
             "  b:\n"
             "    name: Security scanning\n"
             "  c:\n"
@@ -182,24 +184,22 @@ class TestCheckPipelineStages:
         results = check_pipeline_stages("library")
         assert any(s == FAIL and "Missing pipeline stage" in m for s, m in results)
 
-    def test_all_present_iac(self, tmp_path, monkeypatch):
+    def test_all_present_service(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         workflows = tmp_path / ".github" / "workflows"
         workflows.mkdir(parents=True)
         (workflows / "pipeline.yaml").write_text(
             "jobs:\n"
             "  a:\n"
-            "    name: Pre-commit checks\n"
+            "    name: Code quality\n"
             "  b:\n"
             "    name: Security scanning\n"
             "  c:\n"
             "    name: Unit tests\n"
             "  d:\n"
             "    name: License compliance\n"
-            "  e:\n"
-            "    name: Build validation\n"
         )
-        results = check_pipeline_stages("iac")
+        results = check_pipeline_stages("service")
         assert any(s == PASS for s, _ in results)
         assert not any(s == FAIL for s, _ in results)
 
@@ -223,6 +223,23 @@ class TestStatusCommandCLI:
 
         runner = CliRunner()
         result = runner.invoke(status_command, ["--type", "library", "--verbose"])
+        assert result.exit_code == 0
+
+    @patch("gh_secrets_and_vars_async.status.get_rulesets")
+    @patch("gh_secrets_and_vars_async.status.get_github_repo")
+    @patch("gh_secrets_and_vars_async.status.load_env_config")
+    def test_iac_backward_compat(
+        self, mock_env, mock_get_repo, mock_rulesets, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        mock_env.return_value = ("repo", "account", "token")
+        repo = MagicMock()
+        type(repo).allow_auto_merge = PropertyMock(return_value=True)
+        mock_get_repo.return_value = repo
+        mock_rulesets.return_value = []
+
+        runner = CliRunner()
+        result = runner.invoke(status_command, ["--type", "iac", "--verbose"])
         assert result.exit_code == 0
 
     @patch("gh_secrets_and_vars_async.status.load_env_config")

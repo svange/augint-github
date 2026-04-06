@@ -13,20 +13,20 @@ class TestDetectRepoType:
         (workflows / "pipeline.yaml").write_text("name: License compliance\njobs:")
         assert detect_repo_type() == "library"
 
-    def test_detects_iac_sam(self, tmp_path, monkeypatch):
+    def test_detects_service_sam(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "template.yaml").write_text("AWSTemplateFormatVersion: '2010-09-09'")
-        assert detect_repo_type() == "iac"
+        assert detect_repo_type() == "service"
 
-    def test_detects_iac_cdk(self, tmp_path, monkeypatch):
+    def test_detects_service_cdk(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "cdk.json").write_text("{}")
-        assert detect_repo_type() == "iac"
+        assert detect_repo_type() == "service"
 
-    def test_detects_iac_terraform(self, tmp_path, monkeypatch):
+    def test_detects_service_terraform(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "main.tf").write_text("resource {}")
-        assert detect_repo_type() == "iac"
+        assert detect_repo_type() == "service"
 
     def test_detects_library_from_pyproject(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

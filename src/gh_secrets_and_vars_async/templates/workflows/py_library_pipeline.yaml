@@ -4,12 +4,10 @@ on:
   pull_request:
     branches:
       - main
-      - dev
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
-      - dev
 
 env:
   GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -23,8 +21,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pre-commit:
-    name: Pre-commit checks
+  code-quality:
+    name: Code quality
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -50,10 +48,13 @@ jobs:
       - name: Run pre-commit hooks
         run: uv run pre-commit run --all-files
 
+      - name: Build validation
+        run: uv build
+
   security-scan:
     name: Security scanning
     runs-on: ubuntu-latest
-    needs: [pre-commit]
+    needs: [code-quality]
     permissions:
       contents: read
 
@@ -75,12 +76,6 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Run Bandit security scan
-        run: |
-          uv run bandit -r src/ -f json -o bandit-report.json || true
-          uv run bandit -r src/ -ll
-        continue-on-error: false
-
       - name: Run pip-audit
         run: |
           uv export --no-dev --no-hashes -o prod-requirements.txt
@@ -93,9 +88,8 @@ jobs:
         with:
           config: >-
             p/python
-            p/security-audit
-            p/secrets
             p/owasp-top-ten
+            p/secrets
           generateSarif: "1"
         continue-on-error: false
 
@@ -105,14 +99,13 @@ jobs:
         with:
           name: security-scan-results
           path: |
-            bandit-report.json
             pip-audit-report.json
             semgrep-results.sarif
 
   compliance-reports:
     name: License compliance
     runs-on: ubuntu-latest
-    needs: [pre-commit]
+    needs: [code-quality]
     permissions:
       contents: read
 
@@ -152,7 +145,7 @@ jobs:
 
   unit-tests:
     name: Unit tests
-    needs: [pre-commit]
+    needs: [code-quality]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -182,123 +175,25 @@ jobs:
             --html=test-report.html --self-contained-html \
             -v
 
-      - name: Upload test reports
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            htmlcov/
+            coverage.xml
+
+      - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-reports
-          path: |
-            htmlcov/
-            coverage.xml
-            test-report.html
-
-  build-validation:
-    name: Build validation
-    needs: [pre-commit]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Install dependencies
-        run: uv sync --all-extras
-
-      # Customize this step for your IaC tool:
-      # SAM: sam validate && sam build
-      # CDK: cdk synth
-      # Terraform: terraform validate && terraform plan
-      - name: Validate IaC build
-        run: |
-          echo "Add your IaC validation command here"
-          echo "Examples:"
-          echo "  sam validate && sam build"
-          echo "  npx cdk synth"
-          echo "  terraform init && terraform validate && terraform plan"
-          exit 1  # Fail until configured
-
-  # --- Post-deployment jobs (run after merge, not on PRs) ---
-
-  integration-tests:
-    name: Integration tests
-    needs: [unit-tests, security-scan, compliance-reports, build-validation]
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Install dependencies
-        run: uv sync --all-extras
-
-      - name: Run integration tests
-        run: |
-          echo "Add your integration test commands here"
-          echo "These run against the deployed staging/production environment"
-          uv run pytest tests/ -m "end_to_end" -v || true
-
-  smoke-tests:
-    name: Smoke tests
-    needs: [integration-tests]
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Install dependencies
-        run: uv sync --all-extras
-
-      - name: Run smoke tests
-        run: |
-          echo "Add your smoke test commands here"
-          echo "These verify basic functionality of the deployed environment"
-          uv run pytest tests/ -m "smoke" -v || true
+          path: test-report.html
 
   release:
     name: Semantic release
-    needs: [integration-tests, smoke-tests]
+    needs: [unit-tests, security-scan, compliance-reports]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     concurrency:
@@ -356,3 +251,79 @@ jobs:
 
           echo "released=$RELEASED" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Upload distribution artifacts
+        if: steps.release.outputs.released == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: distribution-artifacts
+          path: dist/
+          if-no-files-found: warn
+
+  publish-to-pypi:
+    name: Publish to PyPI
+    needs: release
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.release.outputs.released == 'true'
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: distribution-artifacts
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true
+
+  docs:
+    name: Deploy documentation
+    needs: release
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Generate documentation
+        run: |
+          mkdir -p docs
+          uv run pdoc --output-dir docs \
+            src/gh_secrets_and_vars_async || true
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GH_TOKEN }}
+          publish_dir: ./docs
+          publish_branch: gh-pages

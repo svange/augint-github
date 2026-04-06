@@ -51,6 +51,13 @@ def get_github_client() -> Github:
     return Github(auth=auth)
 
 
+def normalize_type(repo_type: str) -> str:
+    """Normalize repo type, mapping legacy 'iac' to 'service'."""
+    if repo_type == "iac":
+        return "service"
+    return repo_type
+
+
 def load_template(category: str, name: str) -> dict | str:
     """Load a template file from the templates directory.
 

@@ -1,10 +1,10 @@
 {
-  "name": "IaC Dev gate",
+  "name": "Service Production gate",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
     "ref_name": {
-      "include": ["refs/heads/dev"],
+      "include": ["~DEFAULT_BRANCH"],
       "exclude": []
     }
   },
@@ -21,11 +21,10 @@
         "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": false,
         "required_status_checks": [
-          {"context": "Pre-commit checks"},
+          {"context": "Code quality"},
           {"context": "Security scanning"},
           {"context": "Unit tests"},
-          {"context": "License compliance"},
-          {"context": "Build validation"}
+          {"context": "License compliance"}
         ]
       }
     }

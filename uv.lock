@@ -63,7 +63,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "augint-shell"
-version = "0.26.0"
+version = "0.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -71,9 +71,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a3/a9/63549bc3f3b0ab53d1d4189fe93cf1030461328ccabe83e933c1c97ca6c5/augint_shell-0.26.0.tar.gz", hash = "sha256:0c9e5fd47e4430d0586c47aec6e604e0d6acef28fb52f4b3cbfdf1fc0b4358d7", size = 124375, upload-time = "2026-04-05T04:03:34.02Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/dc/e6/9f9389475135171a0c5048829d56a279efdd6e078f510c99b48c08e1c9dc/augint_shell-0.29.0.tar.gz", hash = "sha256:bc130a1c7ab51d53cf90365a7539b13e92bb78a968c3dbb5243d851c4288d094", size = 133464, upload-time = "2026-04-05T16:56:25.082Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/86/0363ccc9bf3bd62154a3585f5682f9e736bccd15c47f299616c4de47007c/augint_shell-0.26.0-py3-none-any.whl", hash = "sha256:b6fa36119f537f1ddbe33b8ff4690c819107107d54a6d0da8923b5b793843f1e", size = 181580, upload-time = "2026-04-05T04:03:32.467Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/a9/a2e92782f4e135dd2a3a47158bfc9a5c2827fbdd09a63cf8da6ba35d8959/augint_shell-0.29.0-py3-none-any.whl", hash = "sha256:052d2a6477cfff5aa5169eac2922a031101abb4b2fd9e0d979a2c79b617ac593", size = 192711, upload-time = "2026-04-05T16:56:23.498Z" },
 ]
 
 [[package]]

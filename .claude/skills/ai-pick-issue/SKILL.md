@@ -114,7 +114,42 @@ if body_length > 500: score += 2  # Well-documented
 
 # CRITICAL: Never recommend closed issues
 if state == "CLOSED": score = -1000
+
+# Renovate Dependency Dashboard filtering (see subsection below)
+if is_renovate_dashboard(issue):
+    if not has_actionable_items(issue):
+        score = -1000  # Skip -- schedule handles it
+    else:
+        score = 6  # Override with moderate score for actionable dashboards
 ```
+
+### Renovate Dependency Dashboard Filtering
+
+Renovate creates a "Dependency Dashboard" issue that tracks all pending updates. Most of the time this issue requires no human intervention -- the Renovate schedule handles everything automatically. Only surface it when there are genuinely stuck or failed items.
+
+**Detection**: An issue is a Renovate dashboard if:
+- Title contains "Dependency Dashboard" (case-insensitive), OR
+- Author/creator is `renovate[bot]`
+
+**Triage the dashboard body** for actionable items. Fetch the full issue body:
+```bash
+gh issue view $NUMBER --json number,title,body,author
+```
+
+**Actionable** (include in recommendations):
+- Any item with a warning or error icon (`:warning:`, `:x:`, unicode warning/error symbols)
+- A "Rate-Limited" section with items stuck for >7 days
+- PRs listed under "Open" that are older than 14 days (stale/stuck)
+- Items explicitly marked as "Failing" or "Error"
+- Checkboxes the user has manually ticked (indicating manual intervention requested)
+
+**Not actionable** (exclude from recommendations):
+- Dashboard body says "all updates are up-to-date" or equivalent
+- Only contains "Detected Dependencies" section (informational)
+- All pending items are within their scheduled window
+- Open PRs are recent (<7 days) and progressing normally (awaiting CI or automerge)
+
+When a Renovate dashboard IS actionable, present it with a brief summary of what needs attention (e.g., "2 stuck PRs, 1 failed update") rather than showing the full dashboard body.
 
 ### Present Recommendations
 

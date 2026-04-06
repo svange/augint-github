@@ -8,16 +8,38 @@ class TestWorkflowCommand:
         runner = CliRunner()
         result = runner.invoke(workflow_command, ["--type", "library", "--dry-run"])
         assert result.exit_code == 0
-        assert "Pre-commit checks" in result.output
+        assert "Code quality" in result.output
         assert "License compliance" in result.output
 
-    def test_dry_run_iac(self):
+    def test_dry_run_service(self):
+        runner = CliRunner()
+        result = runner.invoke(workflow_command, ["--type", "service", "--dry-run"])
+        assert result.exit_code == 0
+        assert "Code quality" in result.output
+        assert "Integration tests" in result.output
+        assert "Smoke tests" in result.output
+
+    def test_dry_run_iac_backward_compat(self):
         runner = CliRunner()
         result = runner.invoke(workflow_command, ["--type", "iac", "--dry-run"])
         assert result.exit_code == 0
-        assert "Build validation" in result.output
+        assert "Code quality" in result.output
         assert "Integration tests" in result.output
-        assert "Smoke tests" in result.output
+
+    def test_dry_run_lang_typescript(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            workflow_command, ["--type", "library", "--lang", "typescript", "--dry-run"]
+        )
+        assert result.exit_code == 0
+        assert "Code quality" in result.output
+        assert "pnpm" in result.output
+
+    def test_dry_run_lang_default_is_python(self):
+        runner = CliRunner()
+        result = runner.invoke(workflow_command, ["--type", "library", "--dry-run"])
+        assert result.exit_code == 0
+        assert "uv sync" in result.output
 
     def test_write_to_output(self, tmp_path):
         output = tmp_path / "pipeline.yaml"
@@ -26,7 +48,7 @@ class TestWorkflowCommand:
         assert result.exit_code == 0
         assert output.exists()
         content = output.read_text()
-        assert "Pre-commit checks" in content
+        assert "Code quality" in content
 
     def test_type_required(self):
         runner = CliRunner()
@@ -55,11 +77,11 @@ class TestWorkflowCommand:
         result = runner.invoke(workflow_command, ["--type", "library", "--force"])
         assert result.exit_code == 0
         content = (workflows_dir / "pipeline.yaml").read_text()
-        assert "Pre-commit checks" in content
+        assert "Code quality" in content
 
     def test_creates_directories(self, tmp_path):
         output = tmp_path / "new" / "dir" / "pipeline.yaml"
         runner = CliRunner()
-        result = runner.invoke(workflow_command, ["--type", "iac", "--output", str(output)])
+        result = runner.invoke(workflow_command, ["--type", "service", "--output", str(output)])
         assert result.exit_code == 0
         assert output.exists()
