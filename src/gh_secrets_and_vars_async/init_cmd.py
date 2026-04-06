@@ -5,7 +5,7 @@ from rich import print
 from rich.panel import Panel
 from rich.table import Table
 
-from .common import configure_logging, get_github_repo, load_env_config
+from .common import configure_logging, get_github_repo, load_env_config, normalize_type
 from .config import has_dev_branch, set_repo_settings
 from .push import perform_update
 from .rulesets import apply_template
@@ -54,7 +54,7 @@ def ensure_env_file(filename: str = ".env") -> str:
 def detect_repo_type() -> str | None:
     """Auto-detect repository type based on file contents.
 
-    Returns "library" or "iac" or None if unable to detect.
+    Returns "library" or "service" or None if unable to detect.
     """
     pipeline = Path(".github/workflows/pipeline.yaml")
     if pipeline.exists():
@@ -62,7 +62,7 @@ def detect_repo_type() -> str | None:
         if "license compliance" in content or "pip-licenses" in content:
             return "library"
         if "sam" in content or "cdk" in content or "terraform" in content:
-            return "iac"
+            return "service"
 
     pyproject = Path("pyproject.toml")
     if pyproject.exists():
@@ -72,7 +72,7 @@ def detect_repo_type() -> str | None:
 
     for indicator in ["template.yaml", "template.yml", "samconfig.toml", "cdk.json", "main.tf"]:
         if Path(indicator).exists():
-            return "iac"
+            return "service"
 
     return None
 
@@ -81,9 +81,16 @@ def detect_repo_type() -> str | None:
 @click.option(
     "--type",
     "repo_type",
-    type=click.Choice(["iac", "library"]),
+    type=click.Choice(["service", "library", "iac"]),
     default=None,
     help="Repository type (auto-detected if not specified).",
+)
+@click.option(
+    "--lang",
+    "lang",
+    type=click.Choice(["python", "typescript"]),
+    default="python",
+    help="Language/ecosystem (default: python).",
 )
 @click.option("--no-rulesets", is_flag=True, help="Skip ruleset setup.")
 @click.option("--no-config", is_flag=True, help="Skip auto-merge setup.")
@@ -95,6 +102,7 @@ def detect_repo_type() -> str | None:
 )
 def init_command(
     repo_type: str | None,
+    lang: str,
     no_rulesets: bool,
     no_config: bool,
     no_push: bool,
@@ -133,8 +141,12 @@ def init_command(
             print(f"Auto-detected repo type: [cyan]{repo_type}[/cyan]")
         else:
             repo_type = click.prompt(
-                "Repository type", type=click.Choice(["iac", "library"]), default="library"
+                "Repository type",
+                type=click.Choice(["service", "library", "iac"]),
+                default="library",
             )
+
+    repo_type = normalize_type(repo_type)
 
     summary = Table(show_header=False, box=None, padding=(0, 2))
     summary.add_column("Setting", style="bold")
@@ -164,6 +176,7 @@ def init_command(
         ctx.invoke(
             workflow_command,
             workflow_type=repo_type,
+            lang=lang,
             output_path=None,
             force=False,
             dry_run=dry_run,

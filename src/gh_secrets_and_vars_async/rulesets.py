@@ -4,7 +4,13 @@ from rich import print
 from rich.panel import Panel
 from rich.table import Table
 
-from .common import configure_logging, get_github_repo, load_env_config, load_template
+from .common import (
+    configure_logging,
+    get_github_repo,
+    load_env_config,
+    load_template,
+    normalize_type,
+)
 
 
 def get_rulesets(repo) -> list[dict]:
@@ -57,7 +63,7 @@ def apply_template(repo, template_name: str, dry_run: bool = False) -> list[dict
 
     Args:
         repo: GitHub Repository object.
-        template_name: "iac" or "library".
+        template_name: "service" or "library" ("iac" accepted as alias for "service").
         dry_run: If True, no changes are made.
 
     Returns:
@@ -67,17 +73,17 @@ def apply_template(repo, template_name: str, dry_run: bool = False) -> list[dict
     if deleted:
         print(f"Removed {deleted} existing ruleset(s).")
 
-    if template_name == "iac":
+    if template_name == "service":
         template_dicts: list[dict] = [
-            load_template("rulesets", "iac_dev"),  # type: ignore[list-item]
-            load_template("rulesets", "iac_production"),  # type: ignore[list-item]
+            load_template("rulesets", "service_dev"),  # type: ignore[list-item]
+            load_template("rulesets", "service_production"),  # type: ignore[list-item]
         ]
     elif template_name == "library":
         template_dicts = [
-            load_template("rulesets", "publishable_library"),  # type: ignore[list-item]
+            load_template("rulesets", "library"),  # type: ignore[list-item]
         ]
     else:
-        raise click.BadParameter(f"Unknown template: {template_name}. Use 'iac' or 'library'.")
+        raise click.BadParameter(f"Unknown template: {template_name}. Use 'service' or 'library'.")
 
     results: list[dict] = []
     for tmpl in template_dicts:
@@ -128,7 +134,7 @@ def display_rulesets(rulesets: list[dict]) -> None:
 @click.option(
     "--apply",
     "apply_template_name",
-    type=click.Choice(["iac", "library"]),
+    type=click.Choice(["service", "library", "iac"]),
     default=None,
     help="Apply a ruleset template (replaces all existing rulesets).",
 )
@@ -146,6 +152,7 @@ def rulesets_command(view: bool, apply_template_name: str | None, verbose: bool,
     repo = get_github_repo(gh_account, gh_repo)
 
     if apply_template_name:
+        apply_template_name = normalize_type(apply_template_name)
         results = apply_template(repo, apply_template_name, dry_run=dry_run)
         print(
             f"\n[green]Applied '{apply_template_name}' template ({len(results)} ruleset(s)).[/green]"

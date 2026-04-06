@@ -3,14 +3,14 @@ from pathlib import Path
 import click
 from rich import print
 
-from .common import load_template
+from .common import load_template, normalize_type
 
 
 @click.command("workflow")
 @click.option(
     "--type",
     "workflow_type",
-    type=click.Choice(["iac", "library"]),
+    type=click.Choice(["service", "library", "iac"]),
     required=True,
     help="Workflow type to generate.",
 )
@@ -21,11 +21,22 @@ from .common import load_template
     default=None,
     help="Output path (default: .github/workflows/pipeline.yaml).",
 )
+@click.option(
+    "--lang",
+    "lang",
+    type=click.Choice(["python", "typescript"]),
+    default="python",
+    help="Language/ecosystem (default: python).",
+)
 @click.option("--force", is_flag=True, help="Overwrite existing pipeline.yaml.")
 @click.option("--dry-run", "-d", is_flag=True, help="Print to stdout instead of writing.")
-def workflow_command(workflow_type: str, output_path: str | None, force: bool, dry_run: bool):
+def workflow_command(
+    workflow_type: str, lang: str, output_path: str | None, force: bool, dry_run: bool
+):
     """Generate a CI/CD pipeline.yaml aligned with ruleset status checks."""
-    template_name = "iac_pipeline" if workflow_type == "iac" else "library_pipeline"
+    workflow_type = normalize_type(workflow_type)
+    lang_prefix = "py" if lang == "python" else "ts"
+    template_name = f"{lang_prefix}_{workflow_type}_pipeline"
     content = load_template("workflows", template_name)
 
     default_path = Path(".github/workflows/pipeline.yaml")

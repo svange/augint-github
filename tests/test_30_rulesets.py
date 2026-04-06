@@ -123,18 +123,18 @@ class TestApplyTemplate:
     def test_apply_library(self, mock_repo):
         mock_repo._requester.requestJsonAndCheck.side_effect = [
             ({}, []),  # GET list (delete_all -> get_rulesets, empty)
-            ({}, {"id": 1, "name": "Publishable library"}),  # POST
+            ({}, {"id": 1, "name": "Library"}),  # POST
         ]
         results = apply_template(mock_repo, "library")
         assert len(results) == 1
 
-    def test_apply_iac(self, mock_repo):
+    def test_apply_service(self, mock_repo):
         mock_repo._requester.requestJsonAndCheck.side_effect = [
             ({}, []),  # GET list (delete_all, empty)
-            ({}, {"id": 1, "name": "IaC Dev gate"}),  # POST dev
-            ({}, {"id": 2, "name": "IaC Production gate"}),  # POST prod
+            ({}, {"id": 1, "name": "Service Dev gate"}),  # POST dev
+            ({}, {"id": 2, "name": "Service Production gate"}),  # POST prod
         ]
-        results = apply_template(mock_repo, "iac")
+        results = apply_template(mock_repo, "service")
         assert len(results) == 2
 
     def test_apply_unknown_template(self, mock_repo):
@@ -147,7 +147,7 @@ class TestApplyTemplate:
             ({}, [{"id": 99, "name": "old"}]),  # GET list
             ({}, {"id": 99, "name": "old"}),  # GET detail
             ({}, None),  # DELETE 99
-            ({}, {"id": 1, "name": "Publishable library"}),  # POST
+            ({}, {"id": 1, "name": "Library"}),  # POST
         ]
         results = apply_template(mock_repo, "library")
         assert len(results) == 1
@@ -188,6 +188,19 @@ class TestRulesetsCommandCLI:
 
         runner = CliRunner()
         result = runner.invoke(rulesets_command, ["--apply", "library", "--dry-run"])
+        assert result.exit_code == 0
+
+    @patch("gh_secrets_and_vars_async.rulesets.get_github_repo")
+    @patch("gh_secrets_and_vars_async.rulesets.load_env_config")
+    def test_apply_iac_backward_compat(self, mock_env, mock_get_repo):
+        mock_env.return_value = ("repo", "account", "token")
+        mock_repo = MagicMock()
+        mock_repo.url = "https://api.github.com/repos/account/repo"
+        mock_repo._requester.requestJsonAndCheck.return_value = ({}, [])
+        mock_get_repo.return_value = mock_repo
+
+        runner = CliRunner()
+        result = runner.invoke(rulesets_command, ["--apply", "iac", "--dry-run"])
         assert result.exit_code == 0
 
     @patch("gh_secrets_and_vars_async.rulesets.load_env_config")

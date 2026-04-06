@@ -1,5 +1,5 @@
 {
-  "name": "Publishable library",
+  "name": "Library",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
@@ -21,7 +21,7 @@
         "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": false,
         "required_status_checks": [
-          {"context": "Pre-commit checks"},
+          {"context": "Code quality"},
           {"context": "Security scanning"},
           {"context": "Unit tests"},
           {"context": "License compliance"}
