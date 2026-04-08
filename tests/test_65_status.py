@@ -7,11 +7,11 @@ from gh_secrets_and_vars_async.status import (
     PASS,
     WARN,
     _expected_check_names,
-    _extract_pipeline_job_names,
     check_auto_merge,
     check_pipeline_file,
     check_pipeline_stages,
     check_rulesets,
+    extract_pipeline_job_names,
     status_command,
 )
 
@@ -47,17 +47,17 @@ class TestExtractPipelineJobNames:
             "  unit-tests:\n"
             "    name: Unit tests\n"
         )
-        names = _extract_pipeline_job_names(pipeline)
+        names = extract_pipeline_job_names(pipeline)
         assert names == {"Code quality", "Unit tests"}
 
     def test_nonexistent_file(self, tmp_path):
-        names = _extract_pipeline_job_names(tmp_path / "missing.yaml")
+        names = extract_pipeline_job_names(tmp_path / "missing.yaml")
         assert names == set()
 
     def test_no_jobs_section(self, tmp_path):
         pipeline = tmp_path / "pipeline.yaml"
         pipeline.write_text("name: Simple\non:\n  push:\n")
-        names = _extract_pipeline_job_names(pipeline)
+        names = extract_pipeline_job_names(pipeline)
         assert names == set()
 
 

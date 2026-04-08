@@ -94,6 +94,30 @@ def apply_template(repo, template_name: str, dry_run: bool = False) -> list[dict
     return results
 
 
+def apply_custom_rulesets(
+    repo,
+    rulesets: list[dict],
+    replace_existing: bool = True,
+    dry_run: bool = False,
+) -> list[dict]:
+    """Apply user-built rulesets. Optionally deletes existing rulesets first.
+
+    Unlike :func:`apply_template`, this accepts pre-built ruleset dicts
+    rather than loading from JSON templates.
+    """
+    if replace_existing:
+        deleted = delete_all_rulesets(repo, dry_run=dry_run)
+        if deleted:
+            print(f"Removed {deleted} existing ruleset(s).")
+
+    results: list[dict] = []
+    for ruleset in rulesets:
+        result = create_ruleset(repo, ruleset, dry_run=dry_run)
+        if result is not None:
+            results.append(result)
+    return results
+
+
 def display_rulesets(rulesets: list[dict]) -> None:
     """Pretty-print rulesets using Rich."""
     if not rulesets:

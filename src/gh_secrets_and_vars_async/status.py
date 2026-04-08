@@ -42,14 +42,20 @@ def _expected_rulesets(repo_type: str) -> list[dict]:
     return [load_template("rulesets", "library")]  # type: ignore[list-item]
 
 
-def _extract_pipeline_job_names(pipeline_path: Path) -> set[str]:
-    """Extract job name: values from a pipeline YAML without a YAML parser."""
+def extract_pipeline_job_names(pipeline_path: Path) -> set[str]:
+    """Extract job display names from a workflow YAML without a YAML parser.
+
+    For each job, the ``name:`` field is preferred. When absent, the job key
+    itself is used (GitHub Actions uses the key as the status-check context).
+    """
     if not pipeline_path.exists():
         return set()
 
     content = pipeline_path.read_text()
     names: set[str] = set()
     in_jobs = False
+    current_job_key: str | None = None
+    current_job_has_name = False
     for line in content.splitlines():
         # Detect the top-level "jobs:" key
         if line.startswith("jobs:"):
@@ -57,14 +63,49 @@ def _extract_pipeline_job_names(pipeline_path: Path) -> set[str]:
             continue
         # A top-level key that isn't "jobs:" ends the jobs section
         if in_jobs and re.match(r"^[a-zA-Z]", line) and not line.startswith(" "):
+            # Flush last job key if it had no name
+            if current_job_key and not current_job_has_name:
+                names.add(current_job_key)
             in_jobs = False
+            current_job_key = None
             continue
         if in_jobs:
-            match = re.match(r"^\s+name:\s+(.+)$", line)
-            if match:
-                name = match.group(1).strip().strip("'\"")
+            # Detect a job key (e.g. "  build:" at exactly one indent level)
+            job_key_match = re.match(r"^  ([a-zA-Z_][\w-]*):(?:\s|$)", line)
+            if job_key_match:
+                # Flush previous job key if it had no explicit name
+                if current_job_key and not current_job_has_name:
+                    names.add(current_job_key)
+                current_job_key = job_key_match.group(1)
+                current_job_has_name = False
+                continue
+            # Detect an explicit name field inside a job
+            name_match = re.match(r"^\s+name:\s+(.+)$", line)
+            if name_match:
+                name = name_match.group(1).strip().strip("'\"")
                 names.add(name)
+                current_job_has_name = True
+
+    # Flush the last job if it had no name
+    if in_jobs and current_job_key and not current_job_has_name:
+        names.add(current_job_key)
+
     return names
+
+
+def extract_all_workflow_jobs(workflows_dir: Path) -> dict[str, set[str]]:
+    """Scan all workflow YAML files in a directory.
+
+    Returns a dict mapping each filename to the set of job names found.
+    """
+    result: dict[str, set[str]] = {}
+    if not workflows_dir.is_dir():
+        return result
+    for path in sorted(workflows_dir.glob("*.y*ml")):
+        job_names = extract_pipeline_job_names(path)
+        if job_names:
+            result[path.name] = job_names
+    return result
 
 
 def check_auto_merge(repo) -> tuple[str, str]:
@@ -148,7 +189,7 @@ def check_pipeline_stages(repo_type: str) -> list[tuple[str, str]]:
         results.append((FAIL, "Cannot check stages: pipeline.yaml missing"))
         return results
 
-    actual_names = _extract_pipeline_job_names(pipeline_path)
+    actual_names = extract_pipeline_job_names(pipeline_path)
     expected_names = _expected_check_names(repo_type)
 
     for name in expected_names - actual_names:
