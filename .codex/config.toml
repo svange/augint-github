@@ -1,0 +1,30 @@
+# Codex CLI configuration
+# See: https://developers.openai.com/codex/config-reference
+#
+# All settings below are optional. Codex has sensible defaults.
+# Uncomment and customize as needed.
+
+# model = "o4-mini"
+# web_search = "live"
+# approval_policy = "on-request"
+# sandbox = "workspace-write"
+
+# Named permissions profile (requires default_permissions at top level)
+# default_permissions = "default"
+#
+# [permissions.default]
+#
+# [permissions.default.filesystem]
+# ":project_roots" = "write"
+# "/tmp" = "write"
+#
+# [permissions.default.network]
+# enabled = true
+# mode = "limited"
+# allowed_domains = ["api.github.com", "github.com", "pypi.org"]
+
+# MCP servers
+# [mcp_servers.example]
+# type = "stdio"
+# command = "npx"
+# args = ["-y", "@example/mcp-server"]

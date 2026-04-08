@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import click
@@ -96,6 +97,8 @@ def detect_repo_type() -> str | None:
 @click.option("--no-config", is_flag=True, help="Skip auto-merge setup.")
 @click.option("--no-push", is_flag=True, help="Skip secrets/variables push.")
 @click.option("--no-workflow", is_flag=True, help="Skip workflow generation.")
+@click.option("--batch", is_flag=True, help="Non-interactive mode (forced in non-TTY).")
+@click.option("--interactive", is_flag=True, help="Force interactive wizard even in non-TTY.")
 @click.option("--verbose", "-v", is_flag=True, help="Print detailed output.")
 @click.option(
     "--dry-run", "-d", is_flag=True, help="Show what would be done without making changes."
@@ -107,14 +110,13 @@ def init_command(
     no_config: bool,
     no_push: bool,
     no_workflow: bool,
+    batch: bool,
+    interactive: bool,
     verbose: bool,
     dry_run: bool,
 ):
     """Initialize a GitHub repository with rulesets, auto-merge, and secrets."""
     configure_logging(verbose)
-    import asyncio
-
-    from .workflow import workflow_command
 
     # Step 1: Ensure .env
     filename = ensure_env_file()
@@ -133,7 +135,90 @@ def init_command(
 
     print(f"\n[bold]Initializing {gh_account}/{gh_repo}[/bold]\n")
 
-    # Step 3: Detect or prompt for repo type
+    # Decide: wizard or batch
+    is_tty = sys.stdin.isatty()
+    use_wizard = (interactive or is_tty) and not batch
+
+    if use_wizard:
+        _run_wizard_flow(
+            repo,
+            dry_run=dry_run,
+            verbose=verbose,
+            skip_config=no_config,
+            skip_rulesets=no_rulesets,
+            skip_workflow=no_workflow,
+            skip_push=no_push,
+        )
+    else:
+        _run_batch_flow(
+            repo,
+            gh_account=gh_account,
+            gh_repo_name=gh_repo,
+            repo_type=repo_type,
+            lang=lang,
+            no_rulesets=no_rulesets,
+            no_config=no_config,
+            no_push=no_push,
+            no_workflow=no_workflow,
+            verbose=verbose,
+            dry_run=dry_run,
+            env_filename=filename,
+        )
+
+
+def _run_wizard_flow(
+    repo: object,
+    *,
+    dry_run: bool,
+    verbose: bool,
+    skip_config: bool,
+    skip_rulesets: bool,
+    skip_workflow: bool,
+    skip_push: bool,
+) -> None:
+    """Interactive wizard path."""
+    from .wizard import execute_wizard_state, run_wizard, show_plan
+
+    state = run_wizard(
+        repo,
+        dry_run=dry_run,
+        verbose=verbose,
+        skip_config=skip_config,
+        skip_rulesets=skip_rulesets,
+        skip_workflow=skip_workflow,
+        skip_push=skip_push,
+    )
+
+    show_plan(state)
+
+    if not click.confirm("\nApply these changes?", default=True):
+        raise SystemExit(0)
+
+    execute_wizard_state(repo, state, dry_run=dry_run, verbose=verbose)
+    print(Panel("[bold green]Setup complete[/bold green]", expand=False))
+
+
+def _run_batch_flow(
+    repo: object,
+    *,
+    gh_account: str,
+    gh_repo_name: str,
+    repo_type: str | None,
+    lang: str,
+    no_rulesets: bool,
+    no_config: bool,
+    no_push: bool,
+    no_workflow: bool,
+    verbose: bool,
+    dry_run: bool,
+    env_filename: str,
+) -> None:
+    """Original non-interactive batch path."""
+    import asyncio
+
+    from .workflow import workflow_command
+
+    # Detect or prompt for repo type
     if not repo_type:
         detected = detect_repo_type()
         if detected:
@@ -151,10 +236,10 @@ def init_command(
     summary = Table(show_header=False, box=None, padding=(0, 2))
     summary.add_column("Setting", style="bold")
     summary.add_column("Result")
-    summary.add_row("Repository", f"{gh_account}/{gh_repo}")
+    summary.add_row("Repository", f"{gh_account}/{gh_repo_name}")
     summary.add_row("Type", repo_type)
 
-    # Step 4: Repo settings (merge strategy, auto-merge, branch deletion)
+    # Repo settings
     if not no_config:
         dev = has_dev_branch(repo)
         set_repo_settings(repo, delete_branch_on_merge=not dev, dry_run=dry_run)
@@ -163,14 +248,14 @@ def init_command(
     else:
         summary.add_row("Repo settings", "skipped")
 
-    # Step 5: Rulesets
+    # Rulesets
     if not no_rulesets:
         results = apply_template(repo, repo_type, dry_run=dry_run)
         summary.add_row("Rulesets", f"{len(results)} applied ({repo_type})")
     else:
         summary.add_row("Rulesets", "skipped")
 
-    # Step 6: Workflow
+    # Workflow
     if not no_workflow:
         ctx = click.Context(workflow_command)
         ctx.invoke(
@@ -185,9 +270,9 @@ def init_command(
     else:
         summary.add_row("Workflow", "skipped")
 
-    # Step 7: Push secrets/vars
+    # Secrets push
     if not no_push:
-        push_results: dict = asyncio.run(perform_update(filename, verbose, dry_run))
+        push_results: dict = asyncio.run(perform_update(env_filename, verbose, dry_run))
         total = len(push_results["SECRETS"]) + len(push_results["VARIABLES"])
         summary.add_row("Secrets/Vars", f"{total} synced")
     else:
