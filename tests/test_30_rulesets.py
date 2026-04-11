@@ -10,6 +10,7 @@ from gh_secrets_and_vars_async.rulesets import (
     apply_ruleset_spec,
     create_ruleset,
     display_rulesets,
+    find_deletable_ruleset,
     find_replaceable_ruleset,
     get_rulesets,
     rulesets_command,
@@ -525,3 +526,209 @@ class TestRulesetsCLI:
         assert result.exit_code == 0
         assert "view" in result.output
         assert "apply" in result.output
+        assert "delete" in result.output
+
+
+# ---------------------------------------------------------------------------
+# find_deletable_ruleset -- T0-2
+# ---------------------------------------------------------------------------
+
+
+class TestFindDeletableRuleset:
+    """find_deletable_ruleset must return three distinct outcomes:
+    (match, None) / (None, reason) / (None, None) -- so callers can
+    distinguish idempotent-noop from refuse-with-error.
+    """
+
+    @patch("gh_secrets_and_vars_async.rulesets.get_rulesets")
+    def test_returns_branch_repo_scope_match(self, mock_get, mock_repo):
+        mock_get.return_value = [
+            {
+                "id": 42,
+                "name": "Publishable library",
+                "target": "branch",
+                "source_type": "Repository",
+            },
+        ]
+        match, reason = find_deletable_ruleset(mock_repo, "Publishable library")
+        assert match is not None
+        assert match["id"] == 42
+        assert reason is None
+
+    @patch("gh_secrets_and_vars_async.rulesets.get_rulesets")
+    def test_absent_returns_none_none(self, mock_get, mock_repo):
+        """Idempotent case: no ruleset with that name at all."""
+        mock_get.return_value = [
+            {
+                "id": 1,
+                "name": "Something else",
+                "target": "branch",
+                "source_type": "Repository",
+            },
+        ]
+        match, reason = find_deletable_ruleset(mock_repo, "Publishable library")
+        assert match is None
+        assert reason is None
+
+    @patch("gh_secrets_and_vars_async.rulesets.get_rulesets")
+    def test_repository_scope_same_name_is_blocked(self, mock_get, mock_repo):
+        """Concrete T0-2 acceptance: 'Base Repo Rules' is org-inherited
+        repository-scope. Delete must refuse with a clear reason."""
+        mock_get.return_value = [
+            {
+                "id": 14891896,
+                "name": "Base Repo Rules",
+                "target": "repository",
+                "source_type": "Organization",
+            },
+        ]
+        match, reason = find_deletable_ruleset(mock_repo, "Base Repo Rules")
+        assert match is None
+        assert reason is not None
+        assert "branch-scope" in reason or "repository-scope" in reason
+
+    @patch("gh_secrets_and_vars_async.rulesets.get_rulesets")
+    def test_org_inherited_branch_ruleset_is_blocked(self, mock_get, mock_repo):
+        mock_get.return_value = [
+            {
+                "id": 7,
+                "name": "Org default",
+                "target": "branch",
+                "source_type": "Organization",
+            },
+        ]
+        match, reason = find_deletable_ruleset(mock_repo, "Org default")
+        assert match is None
+        assert reason is not None
+        assert "org-inherited" in reason or "Organization" in reason
+
+    @patch("gh_secrets_and_vars_async.rulesets.get_rulesets")
+    def test_tag_target_is_blocked(self, mock_get, mock_repo):
+        mock_get.return_value = [
+            {
+                "id": 8,
+                "name": "Tag rules",
+                "target": "tag",
+                "source_type": "Repository",
+            },
+        ]
+        match, reason = find_deletable_ruleset(mock_repo, "Tag rules")
+        assert match is None
+        assert reason is not None
+        assert "tag" in reason
+
+    @patch("gh_secrets_and_vars_async.rulesets.get_rulesets")
+    def test_prefers_deletable_over_blocked_same_name(self, mock_get, mock_repo):
+        """Acceptance regression: seed a mock repo with a branch-scope
+        ruleset + an org-scope ruleset of the same name; only the
+        branch-scope one is deletion-eligible.
+        """
+        mock_get.return_value = [
+            {
+                "id": 100,
+                "name": "Same",
+                "target": "repository",
+                "source_type": "Organization",
+            },
+            {
+                "id": 101,
+                "name": "Same",
+                "target": "branch",
+                "source_type": "Repository",
+            },
+        ]
+        match, reason = find_deletable_ruleset(mock_repo, "Same")
+        assert match is not None
+        assert match["id"] == 101
+        assert reason is None
+
+
+# ---------------------------------------------------------------------------
+# CLI: rulesets delete
+# ---------------------------------------------------------------------------
+
+
+class TestRulesetsDeleteCLI:
+    @patch("gh_secrets_and_vars_async.rulesets.find_deletable_ruleset")
+    @patch("gh_secrets_and_vars_async.rulesets.get_github_repo")
+    @patch("gh_secrets_and_vars_async.rulesets.load_env_config")
+    def test_deletes_matching_ruleset(self, mock_env, mock_get_repo, mock_find):
+        mock_env.return_value = ("repo", "account", "token")
+        repo = MagicMock()
+        repo.url = "https://api.github.com/repos/a/b"
+        mock_get_repo.return_value = repo
+        mock_find.return_value = ({"id": 42, "name": "Publishable library"}, None)
+
+        runner = CliRunner()
+        result = runner.invoke(rulesets_command, ["delete", "Publishable library"])
+        assert result.exit_code == 0
+        calls = repo._requester.requestJsonAndCheck.call_args_list
+        assert len(calls) == 1
+        assert calls[0][0][0] == "DELETE"
+        assert calls[0][0][1].endswith("/rulesets/42")
+
+    @patch("gh_secrets_and_vars_async.rulesets.find_deletable_ruleset")
+    @patch("gh_secrets_and_vars_async.rulesets.get_github_repo")
+    @patch("gh_secrets_and_vars_async.rulesets.load_env_config")
+    def test_idempotent_when_absent(self, mock_env, mock_get_repo, mock_find):
+        """Not found -> exit 0, 'nothing to delete', no API mutation."""
+        mock_env.return_value = ("repo", "account", "token")
+        repo = MagicMock()
+        mock_get_repo.return_value = repo
+        mock_find.return_value = (None, None)
+
+        runner = CliRunner()
+        result = runner.invoke(rulesets_command, ["delete", "Publishable library"])
+        assert result.exit_code == 0
+        assert "nothing to delete" in result.output.lower() or "not found" in result.output.lower()
+        repo._requester.requestJsonAndCheck.assert_not_called()
+
+    @patch("gh_secrets_and_vars_async.rulesets.find_deletable_ruleset")
+    @patch("gh_secrets_and_vars_async.rulesets.get_github_repo")
+    @patch("gh_secrets_and_vars_async.rulesets.load_env_config")
+    def test_refuses_blocked_ruleset(self, mock_env, mock_get_repo, mock_find):
+        """Exists but ineligible -> exit non-zero, no API mutation."""
+        mock_env.return_value = ("repo", "account", "token")
+        repo = MagicMock()
+        mock_get_repo.return_value = repo
+        mock_find.return_value = (
+            None,
+            "ruleset 'Base Repo Rules' exists but is repository-scope, not branch-scope; "
+            "refusing to delete",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(rulesets_command, ["delete", "Base Repo Rules"])
+        assert result.exit_code != 0
+        assert "refus" in result.output.lower() or "branch-scope" in result.output.lower()
+        repo._requester.requestJsonAndCheck.assert_not_called()
+
+    @patch("gh_secrets_and_vars_async.rulesets.find_deletable_ruleset")
+    @patch("gh_secrets_and_vars_async.rulesets.get_github_repo")
+    @patch("gh_secrets_and_vars_async.rulesets.load_env_config")
+    def test_dry_run_does_not_call_api(self, mock_env, mock_get_repo, mock_find):
+        mock_env.return_value = ("repo", "account", "token")
+        repo = MagicMock()
+        repo.url = "https://api.github.com/repos/a/b"
+        mock_get_repo.return_value = repo
+        mock_find.return_value = ({"id": 42, "name": "x"}, None)
+
+        runner = CliRunner()
+        result = runner.invoke(rulesets_command, ["delete", "x", "-d"])
+        assert result.exit_code == 0
+        assert "dry run" in result.output.lower() or "would delete" in result.output.lower()
+        repo._requester.requestJsonAndCheck.assert_not_called()
+
+    @patch("gh_secrets_and_vars_async.rulesets.load_env_config")
+    def test_missing_env(self, mock_env):
+        mock_env.return_value = ("", "", "")
+        runner = CliRunner()
+        result = runner.invoke(rulesets_command, ["delete", "x"])
+        assert result.exit_code != 0
+
+    def test_delete_help(self):
+        runner = CliRunner()
+        result = runner.invoke(rulesets_command, ["delete", "--help"])
+        assert result.exit_code == 0
+        assert "NAME" in result.output
+        assert "idempotent" in result.output.lower() or "nothing to delete" in result.output.lower()

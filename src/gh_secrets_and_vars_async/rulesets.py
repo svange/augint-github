@@ -66,24 +66,69 @@ def validate_ruleset_spec(spec: object) -> None:
         raise click.ClickException("Ruleset spec 'rules' must be a list.")
 
 
-def find_replaceable_ruleset(repo, name: str) -> dict | None:
-    """Find the one repo-scope branch ruleset whose name matches.
+def _is_safe_to_mutate_ruleset(rs: dict) -> bool:
+    """Shared safety filter used by every code path that deletes or replaces a ruleset.
 
-    Safety filters (the T0-1 fix):
+    Returns True only for repo-scope branch rulesets. This is the T0-1 fix:
+
     - ``target == "branch"`` -- never touch repository or tag scope.
     - ``source_type == "Repository"`` -- never touch org-inherited rulesets.
-    - ``name`` exact match -- never touch unrelated rulesets.
     """
+    if rs.get("target") != "branch":
+        return False
+    source_type = rs.get("source_type")
+    if source_type and source_type != "Repository":
+        return False
+    return True
+
+
+def find_replaceable_ruleset(repo, name: str) -> dict | None:
+    """Find the one repo-scope branch ruleset whose name matches."""
     for rs in get_rulesets(repo):
-        if rs.get("target") != "branch":
-            continue
-        source_type = rs.get("source_type")
-        if source_type and source_type != "Repository":
+        if not _is_safe_to_mutate_ruleset(rs):
             continue
         if rs.get("name") != name:
             continue
         return rs
     return None
+
+
+def find_deletable_ruleset(repo, name: str) -> tuple[dict | None, str | None]:
+    """Look up a ruleset by name for safe deletion.
+
+    Walks all rulesets on the repo and distinguishes three outcomes:
+
+    - ``(ruleset, None)`` -- a repo-scope branch ruleset with that name was
+      found and is safe to delete.
+    - ``(None, reason)`` -- a ruleset with that name exists but is not
+      deletable (org-inherited, repository-target, or tag-target). The
+      caller should exit with an error using ``reason`` as the message.
+    - ``(None, None)`` -- no ruleset with that name exists at all. The
+      caller should treat this as idempotent "nothing to delete".
+
+    If multiple rulesets share the name (unusual but possible), a
+    deletable one is preferred over a blocked one.
+    """
+    blocked_reason: str | None = None
+    for rs in get_rulesets(repo):
+        if rs.get("name") != name:
+            continue
+        if _is_safe_to_mutate_ruleset(rs):
+            return rs, None
+        # Same name, not safe to touch -- record why and keep looking
+        target = rs.get("target")
+        source_type = rs.get("source_type")
+        if target != "branch":
+            blocked_reason = (
+                f"ruleset '{name}' exists but is {target}-scope, not branch-scope; "
+                "refusing to delete"
+            )
+        else:
+            blocked_reason = (
+                f"ruleset '{name}' exists but is org-inherited "
+                f"(source_type={source_type}); refusing to delete"
+            )
+    return None, blocked_reason
 
 
 def _canonical_ruleset(rs: dict) -> dict:
@@ -214,7 +259,7 @@ def display_rulesets(rulesets: list[dict]) -> None:
 
 @click.group("rulesets")
 def rulesets_command() -> None:
-    """View or apply branch rulesets to a GitHub repository."""
+    """View, apply, or delete branch rulesets on a GitHub repository."""
 
 
 @rulesets_command.command("view")
@@ -275,3 +320,50 @@ def apply_cmd(spec_path: Path, dry_run: bool, verbose: bool) -> None:
 
     if result is not None and verbose:
         display_rulesets([result])
+
+
+@rulesets_command.command("delete")
+@click.argument("name")
+@click.option(
+    "--dry-run", "-d", is_flag=True, help="Show what would be done without making changes."
+)
+@click.option("--verbose", "-v", is_flag=True, help="Print detailed output.")
+def delete_cmd(name: str, dry_run: bool, verbose: bool) -> None:
+    """Delete a repo-scope branch ruleset by NAME.
+
+    Idempotent: if no ruleset with NAME exists, exits 0 with a
+    'nothing to delete' message -- safe to call unconditionally from
+    migration scripts. Refuses (non-zero exit) if a ruleset with NAME
+    exists but is org-inherited or non-branch-scope.
+    """
+    configure_logging(verbose)
+
+    gh_repo, gh_account, _ = load_env_config()
+    if not gh_repo or not gh_account:
+        raise click.ClickException("GH_REPO and GH_ACCOUNT must be set in .env or environment.")
+    repo = get_github_repo(gh_account, gh_repo)
+
+    match, blocked_reason = find_deletable_ruleset(repo, name)
+
+    if match is None and blocked_reason is None:
+        logger.info(f"Ruleset '{name}' not found; nothing to delete.")
+        print(f"[dim]Ruleset '{name}' not found. Nothing to delete.[/dim]")
+        return
+
+    if match is None:
+        raise click.ClickException(f"Refusing to delete: {blocked_reason}")
+
+    rs_id = match.get("id")
+
+    if dry_run:
+        logger.info(f"[DRY RUN] Would delete ruleset '{name}' (id={rs_id})")
+        print(f"[yellow][DRY RUN] Would delete ruleset '{name}' (id={rs_id}).[/yellow]")
+        return
+
+    try:
+        repo._requester.requestJsonAndCheck("DELETE", f"{repo.url}/rulesets/{rs_id}")
+    except Exception as e:
+        raise click.ClickException(f"Failed to delete ruleset '{name}': {e}") from e
+
+    logger.info(f"Deleted ruleset '{name}' (id={rs_id})")
+    print(f"[green]Deleted ruleset '{name}' (id={rs_id}).[/green]")

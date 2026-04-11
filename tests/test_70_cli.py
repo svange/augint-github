@@ -25,12 +25,13 @@ class TestCLIGroup:
         assert result.exit_code == 0
         assert "secrets" in result.output.lower() or "variables" in result.output.lower()
 
-    def test_rulesets_help_lists_view_and_apply(self):
+    def test_rulesets_help_lists_view_apply_and_delete(self):
         runner = CliRunner()
         result = runner.invoke(main, ["rulesets", "--help"])
         assert result.exit_code == 0
         assert "view" in result.output
         assert "apply" in result.output
+        assert "delete" in result.output
 
     def test_rulesets_view_help(self):
         runner = CliRunner()
@@ -42,6 +43,12 @@ class TestCLIGroup:
         result = runner.invoke(main, ["rulesets", "apply", "--help"])
         assert result.exit_code == 0
         assert "SPEC_PATH" in result.output or "spec" in result.output.lower()
+
+    def test_rulesets_delete_help(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["rulesets", "delete", "--help"])
+        assert result.exit_code == 0
+        assert "NAME" in result.output
 
     def test_config_help(self):
         runner = CliRunner()
