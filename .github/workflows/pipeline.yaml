@@ -296,29 +296,110 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      - name: Recover ghost tag (latest tag with no GitHub Release)
+        id: recover
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LATEST_TAG" ]; then
+            echo "recovered=false" >> $GITHUB_OUTPUT
+            echo "::notice::No existing tags; skipping ghost-tag recovery."
+            exit 0
+          fi
+
+          if gh release view "$LATEST_TAG" >/dev/null 2>&1; then
+            echo "recovered=false" >> $GITHUB_OUTPUT
+            echo "::notice::Latest tag $LATEST_TAG already has a GitHub Release."
+            exit 0
+          fi
+
+          echo "::warning::Latest tag $LATEST_TAG has no GitHub Release. Auto-recovering before semantic-release runs."
+
+          WORKTREE_DIR=$(mktemp -d)/recovery
+          git worktree add "$WORKTREE_DIR" "$LATEST_TAG"
+          (
+            cd "$WORKTREE_DIR"
+            uv lock --locked
+            uv build
+          )
+
+          gh release create "$LATEST_TAG" \
+            --generate-notes \
+            --title "$LATEST_TAG" \
+            "$WORKTREE_DIR"/dist/*
+
+          GHOST_DIST=$(mktemp -d)
+          cp "$WORKTREE_DIR"/dist/* "$GHOST_DIST/"
+          git worktree remove --force "$WORKTREE_DIR"
+
+          echo "recovered=true" >> $GITHUB_OUTPUT
+          echo "ghost_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "ghost_dist=$GHOST_DIST" >> $GITHUB_OUTPUT
+          echo "::notice::Recovered ghost release $LATEST_TAG. Artifacts stashed in $GHOST_DIST."
+
       - name: Run semantic release
         id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RELEASED="false"
-          VERSION=""
+          # Fail loudly on any error. No more silent swallow of release failures.
+          set -euo pipefail
 
-          set +e
-          uv run semantic-release --strict version
-          SEMANTIC_EXIT_CODE=$?
-          set -e
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "::notice::Previous tag before release: ${PREV_TAG:-<none>}"
 
-          if [ $SEMANTIC_EXIT_CODE -eq 0 ]; then
-            echo "Semantic release succeeded"
-            RELEASED="true"
-            VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          # Run semantic-release without --strict. --strict exits non-zero when
+          # there are no commits to release, which is a normal no-op, not an error.
+          # Without --strict, semantic-release exits 0 on no-op and non-zero only
+          # on ACTUAL errors (token, network, HVCS API, build, etc.) -- which is
+          # exactly what we want `set -e` to catch.
+          uv run semantic-release version
+
+          NEW_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          SEMANTIC_RELEASED="false"
+          SEMANTIC_VERSION=""
+          if [ -n "$NEW_TAG" ] && [ "$NEW_TAG" != "$PREV_TAG" ]; then
+            SEMANTIC_RELEASED="true"
+            SEMANTIC_VERSION="${NEW_TAG#v}"
+            echo "::notice::semantic-release created $NEW_TAG"
+
+            # Verify the GitHub Release was actually created -- if not, fail loudly.
+            if ! gh release view "$NEW_TAG" >/dev/null 2>&1; then
+              echo "::error::semantic-release bumped to $NEW_TAG but no GitHub Release exists. Refusing to proceed silently."
+              exit 1
+            fi
           else
-            echo "No release needed"
+            echo "::notice::No release needed (no conventional commits since ${PREV_TAG:-<start>})."
           fi
+
+          # Merge ghost-recovery artifacts into dist/ so they ride along to PyPI.
+          RECOVERED="${{ steps.recover.outputs.recovered }}"
+          GHOST_DIST="${{ steps.recover.outputs.ghost_dist }}"
+          if [ "$RECOVERED" = "true" ] && [ -n "$GHOST_DIST" ] && [ -d "$GHOST_DIST" ]; then
+            mkdir -p dist
+            cp "$GHOST_DIST"/* dist/
+            echo "::notice::Merged recovered artifacts from $GHOST_DIST into dist/"
+            ls -la dist/
+          fi
+
+          # The job publishes if EITHER the auto-recovery happened OR semantic-release bumped.
+          if [ "$RECOVERED" = "true" ] || [ "$SEMANTIC_RELEASED" = "true" ]; then
+            RELEASED="true"
+          else
+            RELEASED="false"
+          fi
+
+          # Prefer semantic-release's new version, fall back to recovered ghost version.
+          VERSION="${SEMANTIC_VERSION:-${{ steps.recover.outputs.ghost_tag }}}"
+          VERSION="${VERSION#v}"
 
           echo "released=$RELEASED" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "::notice::Final release state: released=$RELEASED, version=$VERSION"
 
       - name: Upload distribution artifacts
         if: steps.release.outputs.released == 'true'
