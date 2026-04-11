@@ -23,7 +23,7 @@ uv run pre-commit run --all-files            # Run all pre-commit hooks
 
 - **Commits**: Conventional commits required. `fix:` = patch, `feat:` = minor, `feat!:` / `BREAKING CHANGE` = major.
 - **Branches**: `{type}/issue-N-description` where type is one of: feat, fix, docs, refactor, test, chore, ci, build, style, revert, perf.
-- **PRs**: Target the default development branch. Enable automerge.
+- **PRs**: Libraries target `main`; services target their development branch, then promote via merge commit. Enable automerge. Do not squash when repo policy requires merge commits.
 - **Pre-commit**: Run `uv run pre-commit run --all-files` explicitly before committing (no automatic git hooks -- they break across Windows/WSL). If checks fail, fix the issue and create a NEW commit (do not amend).
 - **Tests**: Write tests for all new functionality. Bug fixes require regression tests.
 
@@ -36,6 +36,15 @@ uv run pre-commit run --all-files            # Run all pre-commit hooks
 3. **Develop**: Write code with tests, following project conventions
 4. **Submit**: `/ai-submit-work` -- runs all checks locally, commits, pushes, creates automerge PR
 5. **Monitor**: `/ai-monitor-pipeline` -- watches CI, diagnoses failures, auto-fixes and re-pushes
+
+## ai-tools Command Contract
+
+- Single-repo workflows: `uv run ai-tools repo <command>`
+- Workspace workflows: `uv run ai-tools workspace <command>`
+- Standardization workflows: `uv run ai-tools standardize <command>`
+- `augint-tools` is the project/repository name; `ai-tools` is the CLI command.
+- Repo-local skills are thin wrappers for `ai-tools` commands.
+- Prefer `--json` output and summarize actionable results.
 
 ## Key Commands
 

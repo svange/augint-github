@@ -1,263 +1,119 @@
-import re
+"""Informational status dump for a GitHub repository.
+
+``ai-gh status`` is intentionally opinion-free: it reports current
+auto-merge state, any non-default repo configuration, all current
+rulesets (including org-inherited ones), and whether a pipeline file
+exists on disk. It no longer compares anything to an in-tool template.
+"""
+
 from pathlib import Path
 
 import click
 from rich import print
 from rich.table import Table
 
-from .common import get_github_repo, load_env_config, load_template, normalize_type
-from .config import get_auto_merge_status
-from .init_cmd import detect_repo_type
-from .rulesets import get_rulesets
+from .common import get_github_repo, load_env_config
+from .config import get_auto_merge_status, has_dev_branch
+from .rulesets import display_rulesets, get_rulesets
 
-PASS = "[green]PASS[/green]"
-FAIL = "[red]FAIL[/red]"
-WARN = "[yellow]WARN[/yellow]"
-
-
-def _expected_check_names(repo_type: str) -> set[str]:
-    """Get the set of expected status check context names for a repo type."""
-    if repo_type == "service":
-        template_names = ["service_dev", "service_production"]
-    else:
-        template_names = ["library"]
-
-    names: set[str] = set()
-    for tname in template_names:
-        tmpl: dict = load_template("rulesets", tname)  # type: ignore[assignment]
-        for rule in tmpl.get("rules", []):
-            if rule["type"] == "required_status_checks":
-                for check in rule.get("parameters", {}).get("required_status_checks", []):
-                    names.add(check["context"])
-    return names
+# GitHub repo default values. A setting is reported in the "non-default"
+# section only if its current value differs from what's listed here.
+REPO_SETTING_DEFAULTS: dict[str, object] = {
+    "allow_merge_commit": True,
+    "allow_squash_merge": True,
+    "allow_rebase_merge": True,
+    "allow_auto_merge": False,
+    "delete_branch_on_merge": False,
+    "allow_update_branch": False,
+    "web_commit_signoff_required": False,
+    "has_issues": True,
+    "has_projects": True,
+    "has_wiki": True,
+    "merge_commit_title": "MERGE_MESSAGE",
+    "merge_commit_message": "PR_TITLE",
+    "squash_merge_commit_title": "COMMIT_OR_PR_TITLE",
+    "squash_merge_commit_message": "COMMIT_MESSAGES",
+}
 
 
-def _expected_rulesets(repo_type: str) -> list[dict]:
-    """Load expected ruleset templates for a repo type."""
-    if repo_type == "service":
-        return [
-            load_template("rulesets", "service_dev"),  # type: ignore[list-item]
-            load_template("rulesets", "service_production"),  # type: ignore[list-item]
-        ]
-    return [load_template("rulesets", "library")]  # type: ignore[list-item]
+def _get_repo_attr(repo: object, name: str) -> object | None:
+    """Read an attribute from a PyGithub Repository, returning None on failure."""
+    try:
+        value: object = getattr(repo, name)
+    except Exception:
+        return None
+    return value
 
 
-def extract_pipeline_job_names(pipeline_path: Path) -> set[str]:
-    """Extract job display names from a workflow YAML without a YAML parser.
+def check_auto_merge(repo) -> str:
+    """Return a human-readable line describing the auto-merge state."""
+    if get_auto_merge_status(repo):
+        return "[green]enabled[/green]"
+    return "[red]disabled[/red]"
 
-    For each job, the ``name:`` field is preferred. When absent, the job key
-    itself is used (GitHub Actions uses the key as the status-check context).
+
+def check_repo_settings(repo) -> list[tuple[str, str]]:
+    """Return (setting, current_value) rows for any non-default repo setting.
+
+    Skips settings that match GitHub's defaults. ``allow_auto_merge`` is
+    intentionally reported here too even though it's also shown above, so
+    users see the full merge policy in one table.
     """
-    if not pipeline_path.exists():
-        return set()
-
-    content = pipeline_path.read_text()
-    names: set[str] = set()
-    in_jobs = False
-    current_job_key: str | None = None
-    current_job_has_name = False
-    for line in content.splitlines():
-        # Detect the top-level "jobs:" key
-        if line.startswith("jobs:"):
-            in_jobs = True
+    rows: list[tuple[str, str]] = []
+    for name, default in REPO_SETTING_DEFAULTS.items():
+        value = _get_repo_attr(repo, name)
+        if value is None:
             continue
-        # A top-level key that isn't "jobs:" ends the jobs section
-        if in_jobs and re.match(r"^[a-zA-Z]", line) and not line.startswith(" "):
-            # Flush last job key if it had no name
-            if current_job_key and not current_job_has_name:
-                names.add(current_job_key)
-            in_jobs = False
-            current_job_key = None
-            continue
-        if in_jobs:
-            # Detect a job key (e.g. "  build:" at exactly one indent level)
-            job_key_match = re.match(r"^  ([a-zA-Z_][\w-]*):(?:\s|$)", line)
-            if job_key_match:
-                # Flush previous job key if it had no explicit name
-                if current_job_key and not current_job_has_name:
-                    names.add(current_job_key)
-                current_job_key = job_key_match.group(1)
-                current_job_has_name = False
-                continue
-            # Detect an explicit name field inside a job
-            name_match = re.match(r"^\s+name:\s+(.+)$", line)
-            if name_match:
-                name = name_match.group(1).strip().strip("'\"")
-                names.add(name)
-                current_job_has_name = True
+        if value != default:
+            rows.append((name, str(value)))
 
-    # Flush the last job if it had no name
-    if in_jobs and current_job_key and not current_job_has_name:
-        names.add(current_job_key)
+    if has_dev_branch(repo):
+        rows.append(("dev branch", "present"))
 
-    return names
+    return rows
 
 
-def extract_all_workflow_jobs(workflows_dir: Path) -> dict[str, set[str]]:
-    """Scan all workflow YAML files in a directory.
-
-    Returns a dict mapping each filename to the set of job names found.
-    """
-    result: dict[str, set[str]] = {}
-    if not workflows_dir.is_dir():
-        return result
-    for path in sorted(workflows_dir.glob("*.y*ml")):
-        job_names = extract_pipeline_job_names(path)
-        if job_names:
-            result[path.name] = job_names
-    return result
-
-
-def check_auto_merge(repo) -> tuple[str, str]:
-    """Check auto-merge setting. Returns (status_icon, message)."""
-    enabled = get_auto_merge_status(repo)
-    if enabled:
-        return PASS, "Auto-merge is enabled"
-    return FAIL, "Auto-merge is disabled (run: ai-gh config --auto-merge)"
-
-
-def check_rulesets(repo, repo_type: str) -> list[tuple[str, str]]:
-    """Check rulesets against expected templates. Returns list of (status, message)."""
-    results: list[tuple[str, str]] = []
-    current = get_rulesets(repo)
-    expected = _expected_rulesets(repo_type)
-
-    current_names = {r["name"] for r in current}
-    expected_names = {e["name"] for e in expected}
-
-    for name in expected_names - current_names:
-        results.append((FAIL, f"Missing ruleset: {name}"))
-
-    for name in current_names - expected_names:
-        results.append((WARN, f"Extra ruleset: {name} (not in template)"))
-
-    for exp in expected:
-        matching = [r for r in current if r["name"] == exp["name"]]
-        if not matching:
-            continue
-
-        actual = matching[0]
-
-        # Compare branches
-        exp_branches = set(exp.get("conditions", {}).get("ref_name", {}).get("include", []))
-        act_branches = set(actual.get("conditions", {}).get("ref_name", {}).get("include", []))
-        if exp_branches != act_branches:
-            results.append(
-                (
-                    FAIL,
-                    f"{exp['name']}: branches mismatch (expected {exp_branches}, got {act_branches})",
-                )
-            )
-
-        # Compare status checks
-        exp_checks: set[str] = set()
-        act_checks: set[str] = set()
-        for rule in exp.get("rules", []):
-            if rule["type"] == "required_status_checks":
-                exp_checks = {c["context"] for c in rule["parameters"]["required_status_checks"]}
-        for rule in actual.get("rules", []):
-            if rule["type"] == "required_status_checks":
-                act_checks = {
-                    c["context"]
-                    for c in rule.get("parameters", {}).get("required_status_checks", [])
-                }
-
-        for check in exp_checks - act_checks:
-            results.append((FAIL, f"{exp['name']}: missing status check '{check}'"))
-        for check in act_checks - exp_checks:
-            results.append((WARN, f"{exp['name']}: extra status check '{check}'"))
-
-        if exp_checks == act_checks and exp_branches == act_branches:
-            results.append((PASS, f"{exp['name']}: matches template"))
-
-    return results
-
-
-def check_pipeline_file() -> tuple[str, str]:
-    """Check if pipeline.yaml exists."""
+def check_pipeline_file() -> str:
+    """Return a human-readable line describing the pipeline file state."""
     if Path(".github/workflows/pipeline.yaml").exists():
-        return PASS, "pipeline.yaml exists"
-    return FAIL, "pipeline.yaml not found (run: ai-gh workflow --type <type>)"
-
-
-def check_pipeline_stages(repo_type: str) -> list[tuple[str, str]]:
-    """Check pipeline job names against expected status check names."""
-    results: list[tuple[str, str]] = []
-    pipeline_path = Path(".github/workflows/pipeline.yaml")
-
-    if not pipeline_path.exists():
-        results.append((FAIL, "Cannot check stages: pipeline.yaml missing"))
-        return results
-
-    actual_names = extract_pipeline_job_names(pipeline_path)
-    expected_names = _expected_check_names(repo_type)
-
-    for name in expected_names - actual_names:
-        results.append((FAIL, f"Missing pipeline stage: '{name}'"))
-    # Non-gate stages (release, publish, docs) are expected extras -- not flagged
-
-    if expected_names <= actual_names:
-        results.append((PASS, "All required pipeline stages present"))
-
-    return results
+        return "[green].github/workflows/pipeline.yaml exists[/green]"
+    return (
+        "[yellow].github/workflows/pipeline.yaml not found "
+        "(run /ai-standardize-pipeline in augint-shell)[/yellow]"
+    )
 
 
 @click.command("status")
-@click.option(
-    "--type",
-    "repo_type",
-    type=click.Choice(["service", "library", "iac"]),
-    default=None,
-    help="Repository type (auto-detected if not specified).",
-)
-@click.option("--verbose", "-v", is_flag=True, help="Show passing checks too.")
-def status_command(repo_type: str | None, verbose: bool):
-    """Audit repository configuration against standard templates."""
-    gh_repo, gh_account, gh_token = load_env_config()
+@click.option("--verbose", "-v", is_flag=True, help="Show additional detail.")
+def status_command(verbose: bool) -> None:
+    """Show repository configuration: auto-merge, non-default settings, rulesets, pipeline file."""
+    gh_repo, gh_account, _ = load_env_config()
     if not gh_repo or not gh_account:
         raise click.ClickException("GH_REPO and GH_ACCOUNT must be set in .env or environment.")
 
     repo = get_github_repo(gh_account, gh_repo)
 
-    if not repo_type:
-        detected = detect_repo_type()
-        if detected:
-            repo_type = detected
-        else:
-            repo_type = "library"
-            print("[yellow]Could not auto-detect repo type, defaulting to 'library'[/yellow]")
+    print(f"\n[bold]Status: {gh_account}/{gh_repo}[/bold]\n")
 
-    repo_type = normalize_type(repo_type)
-    print(f"\n[bold]Status: {gh_account}/{gh_repo}[/bold] (type: {repo_type})\n")
+    # 1. Auto-merge
+    print(f"[bold]Auto-merge:[/bold] {check_auto_merge(repo)}")
 
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Status", width=6)
-    table.add_column("Check")
-
-    all_checks: list[tuple[str, str]] = []
-
-    # Auto-merge
-    all_checks.append(check_auto_merge(repo))
-
-    # Rulesets
-    all_checks.extend(check_rulesets(repo, repo_type))
-
-    # Pipeline file
-    all_checks.append(check_pipeline_file())
-
-    # Pipeline stages
-    all_checks.extend(check_pipeline_stages(repo_type))
-
-    for status, message in all_checks:
-        if verbose or status != PASS:
-            table.add_row(status, message)
-
-    if not verbose and all(s == PASS for s, _ in all_checks):
-        print("[green]All checks pass.[/green]")
-    else:
+    # 2. Non-default repo configuration
+    non_default = check_repo_settings(repo)
+    if non_default:
+        table = Table(show_header=True, header_style="bold", title="Non-default settings")
+        table.add_column("Setting")
+        table.add_column("Value")
+        for name, value in non_default:
+            table.add_row(name, value)
         print(table)
+    else:
+        print("[dim]All repo settings are at GitHub defaults.[/dim]")
 
-    failures = sum(1 for s, _ in all_checks if s == FAIL)
-    warnings = sum(1 for s, _ in all_checks if s == WARN)
-    passes = sum(1 for s, _ in all_checks if s == PASS)
-    print(f"\n{passes} passed, {warnings} warnings, {failures} failed")
+    # 3. Rulesets
+    print("\n[bold]Rulesets[/bold]")
+    rulesets = get_rulesets(repo)
+    display_rulesets(rulesets)
+
+    # 4. Pipeline file
+    print(f"\n[bold]Pipeline:[/bold] {check_pipeline_file()}")

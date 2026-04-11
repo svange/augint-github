@@ -12,9 +12,10 @@ class TestCLIGroup:
         assert "sync" in result.output
         assert "rulesets" in result.output
         assert "config" in result.output
-        assert "workflow" in result.output
         assert "status" in result.output
         assert "init" in result.output
+        # workflow command was deleted (T4-2)
+        assert "workflow" not in result.output
         # push was removed in favor of sync
         assert "push" not in result.output
 
@@ -24,11 +25,23 @@ class TestCLIGroup:
         assert result.exit_code == 0
         assert "secrets" in result.output.lower() or "variables" in result.output.lower()
 
-    def test_rulesets_help(self):
+    def test_rulesets_help_lists_view_and_apply(self):
         runner = CliRunner()
         result = runner.invoke(main, ["rulesets", "--help"])
         assert result.exit_code == 0
-        assert "rulesets" in result.output.lower()
+        assert "view" in result.output
+        assert "apply" in result.output
+
+    def test_rulesets_view_help(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["rulesets", "view", "--help"])
+        assert result.exit_code == 0
+
+    def test_rulesets_apply_help(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["rulesets", "apply", "--help"])
+        assert result.exit_code == 0
+        assert "SPEC_PATH" in result.output or "spec" in result.output.lower()
 
     def test_config_help(self):
         runner = CliRunner()
@@ -36,23 +49,23 @@ class TestCLIGroup:
         assert result.exit_code == 0
         assert "auto-merge" in result.output
 
-    def test_workflow_help(self):
+    def test_workflow_command_removed(self):
         runner = CliRunner()
-        result = runner.invoke(main, ["workflow", "--help"])
-        assert result.exit_code == 0
-        assert "pipeline" in result.output.lower() or "workflow" in result.output.lower()
+        result = runner.invoke(main, ["workflow"])
+        # Click reports "No such command 'workflow'"
+        assert result.exit_code != 0
 
     def test_status_help(self):
         runner = CliRunner()
         result = runner.invoke(main, ["status", "--help"])
         assert result.exit_code == 0
-        assert "audit" in result.output.lower() or "status" in result.output.lower()
+        assert "status" in result.output.lower() or "repository" in result.output.lower()
 
     def test_init_help(self):
         runner = CliRunner()
         result = runner.invoke(main, ["init", "--help"])
         assert result.exit_code == 0
-        assert "rulesets" in result.output.lower() or "initialize" in result.output.lower()
+        assert "bootstrap" in result.output.lower() or "init" in result.output.lower()
 
     def test_chezmoi_help(self):
         runner = CliRunner()
