@@ -36,12 +36,15 @@ If it exists, verify:
 
 ## 3. Gitignore
 
+If `.gitignore` is missing or `--generate`, read `gitignore-template` from `${CLAUDE_SKILL_DIR}` and write as `.gitignore`.
+
 Check `.gitignore` for required patterns:
 
 ### Safety (ERROR if missing)
 - `.env` / `.env.*` (with `!.env.example` exception)
 - `*.pem` / `*.key` / `*.crt`
 - `.claude/settings.local.json`
+- `.ai-shell.toml` (may contain OpenAI API keys in [codex] section)
 
 ### Build artifacts (WARNING if missing)
 - Python: `*.pyc`, `__pycache__`, `dist/`, `*.egg-info`, `build/`, `.aws-sam/`
@@ -90,8 +93,8 @@ grep -A10 '\[tool.ruff\]' pyproject.toml
 Ecosystem: Python | Action: [Generated | Validated | Fixed]
 
 EditorConfig: [PASS] present and correct | [FAIL] MISSING
-Gitignore: [PASS] .env protected | [WARN] missing .claude/settings.local.json
+Gitignore: [PASS] .env protected | [WARN] missing .ai-shell.toml
 Tool Config: [PASS] ruff configured | [WARN] mypy strict not enabled
 
-Next steps: /ai-standardize-precommit | /ai-standardize-repo
+Next steps: /ai-standardize-repo
 ```

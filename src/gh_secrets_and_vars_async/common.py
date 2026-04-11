@@ -1,7 +1,5 @@
-import json
 import os
 import sys
-from importlib.resources import files
 
 from dotenv import load_dotenv
 from github import Auth, Github
@@ -49,29 +47,3 @@ def get_github_client() -> Github:
     token = os.environ.get("GH_TOKEN", "")
     auth = Auth.Token(token)
     return Github(auth=auth)
-
-
-def normalize_type(repo_type: str) -> str:
-    """Normalize repo type, mapping legacy 'iac' to 'service'."""
-    if repo_type == "iac":
-        return "service"
-    return repo_type
-
-
-def load_template(category: str, name: str) -> dict | str:
-    """Load a template file from the templates directory.
-
-    Args:
-        category: Template category ("rulesets" or "workflows").
-        name: Template name without extension.
-
-    Returns:
-        Parsed dict for JSON templates, raw string for YAML templates.
-    """
-    template_dir = files("gh_secrets_and_vars_async") / "templates" / category
-    if category == "rulesets":
-        content = (template_dir / f"{name}.json").read_text()
-        result: dict = json.loads(content)
-        return result
-    else:
-        return (template_dir / f"{name}.yaml").read_text()

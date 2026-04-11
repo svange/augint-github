@@ -3,143 +3,99 @@ from unittest.mock import MagicMock, PropertyMock, patch
 from click.testing import CliRunner
 
 from gh_secrets_and_vars_async.status import (
-    FAIL,
-    PASS,
-    WARN,
-    _expected_check_names,
     check_auto_merge,
     check_pipeline_file,
-    check_pipeline_stages,
-    check_rulesets,
-    extract_pipeline_job_names,
+    check_repo_settings,
     status_command,
 )
-
-
-class TestExpectedCheckNames:
-    def test_library_checks(self):
-        names = _expected_check_names("library")
-        assert "Code quality" in names
-        assert "Security scanning" in names
-        assert "Unit tests" in names
-        assert "License compliance" in names
-
-    def test_service_checks(self):
-        names = _expected_check_names("service")
-        assert "Code quality" in names
-        assert "Security scanning" in names
-        assert "Unit tests" in names
-        assert "License compliance" in names
-
-    def test_library_and_service_have_same_gates(self):
-        assert _expected_check_names("library") == _expected_check_names("service")
-
-
-class TestExtractPipelineJobNames:
-    def test_extracts_names(self, tmp_path):
-        pipeline = tmp_path / "pipeline.yaml"
-        pipeline.write_text(
-            "name: CI/CD Pipeline\n"
-            "jobs:\n"
-            "  code-quality:\n"
-            "    name: Code quality\n"
-            "    runs-on: ubuntu-latest\n"
-            "  unit-tests:\n"
-            "    name: Unit tests\n"
-        )
-        names = extract_pipeline_job_names(pipeline)
-        assert names == {"Code quality", "Unit tests"}
-
-    def test_nonexistent_file(self, tmp_path):
-        names = extract_pipeline_job_names(tmp_path / "missing.yaml")
-        assert names == set()
-
-    def test_no_jobs_section(self, tmp_path):
-        pipeline = tmp_path / "pipeline.yaml"
-        pipeline.write_text("name: Simple\non:\n  push:\n")
-        names = extract_pipeline_job_names(pipeline)
-        assert names == set()
 
 
 class TestCheckAutoMerge:
     def test_enabled(self):
         repo = MagicMock()
         type(repo).allow_auto_merge = PropertyMock(return_value=True)
-        status, msg = check_auto_merge(repo)
-        assert status == PASS
+        assert "enabled" in check_auto_merge(repo)
 
     def test_disabled(self):
         repo = MagicMock()
         type(repo).allow_auto_merge = PropertyMock(return_value=False)
-        status, msg = check_auto_merge(repo)
-        assert status == FAIL
+        assert "disabled" in check_auto_merge(repo)
 
 
-class TestCheckRulesets:
-    @patch("gh_secrets_and_vars_async.status.get_rulesets")
-    def test_matching_library(self, mock_get):
+class TestCheckRepoSettings:
+    @patch("gh_secrets_and_vars_async.status.has_dev_branch")
+    def test_all_defaults_returns_empty(self, mock_dev):
+        """A repo at GitHub defaults should produce no rows."""
+        mock_dev.return_value = False
         repo = MagicMock()
-        mock_get.return_value = [
-            {
-                "name": "Library",
-                "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
-                "rules": [
-                    {"type": "deletion"},
-                    {"type": "non_fast_forward"},
-                    {
-                        "type": "required_status_checks",
-                        "parameters": {
-                            "required_status_checks": [
-                                {"context": "Code quality"},
-                                {"context": "Security scanning"},
-                                {"context": "Unit tests"},
-                                {"context": "License compliance"},
-                            ]
-                        },
-                    },
-                ],
-            }
-        ]
-        results = check_rulesets(repo, "library")
-        statuses = [s for s, _ in results]
-        assert PASS in statuses
-        assert FAIL not in statuses
+        type(repo).allow_merge_commit = PropertyMock(return_value=True)
+        type(repo).allow_squash_merge = PropertyMock(return_value=True)
+        type(repo).allow_rebase_merge = PropertyMock(return_value=True)
+        type(repo).allow_auto_merge = PropertyMock(return_value=False)
+        type(repo).delete_branch_on_merge = PropertyMock(return_value=False)
+        type(repo).allow_update_branch = PropertyMock(return_value=False)
+        type(repo).web_commit_signoff_required = PropertyMock(return_value=False)
+        type(repo).has_issues = PropertyMock(return_value=True)
+        type(repo).has_projects = PropertyMock(return_value=True)
+        type(repo).has_wiki = PropertyMock(return_value=True)
+        type(repo).merge_commit_title = PropertyMock(return_value="MERGE_MESSAGE")
+        type(repo).merge_commit_message = PropertyMock(return_value="PR_TITLE")
+        type(repo).squash_merge_commit_title = PropertyMock(return_value="COMMIT_OR_PR_TITLE")
+        type(repo).squash_merge_commit_message = PropertyMock(return_value="COMMIT_MESSAGES")
+        assert check_repo_settings(repo) == []
 
-    @patch("gh_secrets_and_vars_async.status.get_rulesets")
-    def test_missing_ruleset(self, mock_get):
+    @patch("gh_secrets_and_vars_async.status.has_dev_branch")
+    def test_reports_non_default_merge_strategy(self, mock_dev):
+        mock_dev.return_value = False
         repo = MagicMock()
-        mock_get.return_value = []
-        results = check_rulesets(repo, "library")
-        assert any(s == FAIL and "Missing ruleset" in m for s, m in results)
+        type(repo).allow_merge_commit = PropertyMock(return_value=True)
+        type(repo).allow_squash_merge = PropertyMock(return_value=False)  # non-default
+        type(repo).allow_rebase_merge = PropertyMock(return_value=False)  # non-default
+        type(repo).allow_auto_merge = PropertyMock(return_value=True)  # non-default
+        type(repo).delete_branch_on_merge = PropertyMock(return_value=True)  # non-default
+        type(repo).allow_update_branch = PropertyMock(return_value=False)
+        type(repo).web_commit_signoff_required = PropertyMock(return_value=False)
+        type(repo).has_issues = PropertyMock(return_value=True)
+        type(repo).has_projects = PropertyMock(return_value=True)
+        type(repo).has_wiki = PropertyMock(return_value=True)
+        type(repo).merge_commit_title = PropertyMock(return_value="PR_TITLE")  # non-default
+        type(repo).merge_commit_message = PropertyMock(return_value="PR_BODY")  # non-default
+        type(repo).squash_merge_commit_title = PropertyMock(return_value="COMMIT_OR_PR_TITLE")
+        type(repo).squash_merge_commit_message = PropertyMock(return_value="COMMIT_MESSAGES")
+        rows = check_repo_settings(repo)
+        names = {name for name, _ in rows}
+        assert "allow_squash_merge" in names
+        assert "allow_rebase_merge" in names
+        assert "allow_auto_merge" in names
+        assert "delete_branch_on_merge" in names
+        assert "merge_commit_title" in names
+        assert "merge_commit_message" in names
+        assert "allow_merge_commit" not in names  # still default
 
-    @patch("gh_secrets_and_vars_async.status.get_rulesets")
-    def test_extra_ruleset(self, mock_get):
+    @patch("gh_secrets_and_vars_async.status.has_dev_branch")
+    def test_reports_dev_branch(self, mock_dev):
+        mock_dev.return_value = True
         repo = MagicMock()
-        mock_get.return_value = [{"name": "Unknown ruleset", "conditions": {}, "rules": []}]
-        results = check_rulesets(repo, "library")
-        assert any(s == WARN and "Extra ruleset" in m for s, m in results)
-
-    @patch("gh_secrets_and_vars_async.status.get_rulesets")
-    def test_missing_status_check(self, mock_get):
-        repo = MagicMock()
-        mock_get.return_value = [
-            {
-                "name": "Library",
-                "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
-                "rules": [
-                    {
-                        "type": "required_status_checks",
-                        "parameters": {
-                            "required_status_checks": [
-                                {"context": "Unit tests"},
-                            ]
-                        },
-                    }
-                ],
-            }
-        ]
-        results = check_rulesets(repo, "library")
-        assert any(s == FAIL and "missing status check" in m for s, m in results)
+        # All attrs at defaults
+        for attr, val in [
+            ("allow_merge_commit", True),
+            ("allow_squash_merge", True),
+            ("allow_rebase_merge", True),
+            ("allow_auto_merge", False),
+            ("delete_branch_on_merge", False),
+            ("allow_update_branch", False),
+            ("web_commit_signoff_required", False),
+            ("has_issues", True),
+            ("has_projects", True),
+            ("has_wiki", True),
+            ("merge_commit_title", "MERGE_MESSAGE"),
+            ("merge_commit_message", "PR_TITLE"),
+            ("squash_merge_commit_title", "COMMIT_OR_PR_TITLE"),
+            ("squash_merge_commit_message", "COMMIT_MESSAGES"),
+        ]:
+            setattr(type(repo), attr, PropertyMock(return_value=val))
+        rows = check_repo_settings(repo)
+        assert ("dev branch", "present") in rows
 
 
 class TestCheckPipelineFile:
@@ -148,98 +104,46 @@ class TestCheckPipelineFile:
         workflows = tmp_path / ".github" / "workflows"
         workflows.mkdir(parents=True)
         (workflows / "pipeline.yaml").write_text("name: CI")
-        status, msg = check_pipeline_file()
-        assert status == PASS
+        assert "exists" in check_pipeline_file()
 
     def test_missing(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        status, msg = check_pipeline_file()
-        assert status == FAIL
-
-
-class TestCheckPipelineStages:
-    def test_all_present(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        workflows = tmp_path / ".github" / "workflows"
-        workflows.mkdir(parents=True)
-        (workflows / "pipeline.yaml").write_text(
-            "jobs:\n"
-            "  a:\n"
-            "    name: Code quality\n"
-            "  b:\n"
-            "    name: Security scanning\n"
-            "  c:\n"
-            "    name: Unit tests\n"
-            "  d:\n"
-            "    name: License compliance\n"
-        )
-        results = check_pipeline_stages("library")
-        assert any(s == PASS for s, _ in results)
-
-    def test_missing_stage(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        workflows = tmp_path / ".github" / "workflows"
-        workflows.mkdir(parents=True)
-        (workflows / "pipeline.yaml").write_text("jobs:\n  a:\n    name: Unit tests\n")
-        results = check_pipeline_stages("library")
-        assert any(s == FAIL and "Missing pipeline stage" in m for s, m in results)
-
-    def test_all_present_service(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        workflows = tmp_path / ".github" / "workflows"
-        workflows.mkdir(parents=True)
-        (workflows / "pipeline.yaml").write_text(
-            "jobs:\n"
-            "  a:\n"
-            "    name: Code quality\n"
-            "  b:\n"
-            "    name: Security scanning\n"
-            "  c:\n"
-            "    name: Unit tests\n"
-            "  d:\n"
-            "    name: License compliance\n"
-        )
-        results = check_pipeline_stages("service")
-        assert any(s == PASS for s, _ in results)
-        assert not any(s == FAIL for s, _ in results)
-
-    def test_no_pipeline(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        results = check_pipeline_stages("library")
-        assert any(s == FAIL for s, _ in results)
+        assert "not found" in check_pipeline_file()
 
 
 class TestStatusCommandCLI:
+    @patch("gh_secrets_and_vars_async.status.has_dev_branch")
     @patch("gh_secrets_and_vars_async.status.get_rulesets")
     @patch("gh_secrets_and_vars_async.status.get_github_repo")
     @patch("gh_secrets_and_vars_async.status.load_env_config")
-    def test_runs(self, mock_env, mock_get_repo, mock_rulesets, tmp_path, monkeypatch):
+    def test_runs(self, mock_env, mock_get_repo, mock_rulesets, mock_dev, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         mock_env.return_value = ("repo", "account", "token")
+        mock_dev.return_value = False
         repo = MagicMock()
         type(repo).allow_auto_merge = PropertyMock(return_value=True)
+        # Default values for everything else
+        for attr, val in [
+            ("allow_merge_commit", True),
+            ("allow_squash_merge", True),
+            ("allow_rebase_merge", True),
+            ("delete_branch_on_merge", False),
+            ("allow_update_branch", False),
+            ("web_commit_signoff_required", False),
+            ("has_issues", True),
+            ("has_projects", True),
+            ("has_wiki", True),
+            ("merge_commit_title", "MERGE_MESSAGE"),
+            ("merge_commit_message", "PR_TITLE"),
+            ("squash_merge_commit_title", "COMMIT_OR_PR_TITLE"),
+            ("squash_merge_commit_message", "COMMIT_MESSAGES"),
+        ]:
+            setattr(type(repo), attr, PropertyMock(return_value=val))
         mock_get_repo.return_value = repo
         mock_rulesets.return_value = []
 
         runner = CliRunner()
-        result = runner.invoke(status_command, ["--type", "library", "--verbose"])
-        assert result.exit_code == 0
-
-    @patch("gh_secrets_and_vars_async.status.get_rulesets")
-    @patch("gh_secrets_and_vars_async.status.get_github_repo")
-    @patch("gh_secrets_and_vars_async.status.load_env_config")
-    def test_iac_backward_compat(
-        self, mock_env, mock_get_repo, mock_rulesets, tmp_path, monkeypatch
-    ):
-        monkeypatch.chdir(tmp_path)
-        mock_env.return_value = ("repo", "account", "token")
-        repo = MagicMock()
-        type(repo).allow_auto_merge = PropertyMock(return_value=True)
-        mock_get_repo.return_value = repo
-        mock_rulesets.return_value = []
-
-        runner = CliRunner()
-        result = runner.invoke(status_command, ["--type", "iac", "--verbose"])
+        result = runner.invoke(status_command, [])
         assert result.exit_code == 0
 
     @patch("gh_secrets_and_vars_async.status.load_env_config")
@@ -248,3 +152,9 @@ class TestStatusCommandCLI:
         runner = CliRunner()
         result = runner.invoke(status_command, [])
         assert result.exit_code != 0
+
+    def test_status_help_has_no_type_flag(self):
+        runner = CliRunner()
+        result = runner.invoke(status_command, ["--help"])
+        assert result.exit_code == 0
+        assert "--type" not in result.output

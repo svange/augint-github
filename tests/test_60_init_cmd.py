@@ -2,40 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from gh_secrets_and_vars_async.init_cmd import detect_repo_type, ensure_env_file, init_command
-
-
-class TestDetectRepoType:
-    def test_detects_library(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        workflows = tmp_path / ".github" / "workflows"
-        workflows.mkdir(parents=True)
-        (workflows / "pipeline.yaml").write_text("name: License compliance\njobs:")
-        assert detect_repo_type() == "library"
-
-    def test_detects_service_sam(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "template.yaml").write_text("AWSTemplateFormatVersion: '2010-09-09'")
-        assert detect_repo_type() == "service"
-
-    def test_detects_service_cdk(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "cdk.json").write_text("{}")
-        assert detect_repo_type() == "service"
-
-    def test_detects_service_terraform(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "main.tf").write_text("resource {}")
-        assert detect_repo_type() == "service"
-
-    def test_detects_library_from_pyproject(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "pyproject.toml").write_text('[build-system]\nbuild-backend = "uv_build"')
-        assert detect_repo_type() == "library"
-
-    def test_returns_none_unknown(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        assert detect_repo_type() is None
+from gh_secrets_and_vars_async.init_cmd import ensure_env_file, init_command
 
 
 class TestEnsureEnvFile:
@@ -92,79 +59,55 @@ def _make_test_command(func):
 
 class TestInitCommandCLI:
     @patch("gh_secrets_and_vars_async.init_cmd.perform_update")
-    @patch("gh_secrets_and_vars_async.init_cmd.apply_template")
     @patch("gh_secrets_and_vars_async.init_cmd.set_repo_settings")
     @patch("gh_secrets_and_vars_async.init_cmd.has_dev_branch")
     @patch("gh_secrets_and_vars_async.init_cmd.get_github_repo")
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
-    def test_init_all_skip(
+    def test_init_skip_all(
         self,
         mock_ensure,
         mock_env,
         mock_get_repo,
         mock_has_dev,
         mock_settings,
-        mock_rulesets,
         mock_push,
     ):
         mock_ensure.return_value = ".env"
         mock_env.return_value = ("repo", "account", "token")
-        repo = MagicMock()
-        mock_get_repo.return_value = repo
+        mock_get_repo.return_value = MagicMock()
 
         runner = CliRunner()
-        result = runner.invoke(
-            init_command,
-            [
-                "--type",
-                "library",
-                "--no-rulesets",
-                "--no-config",
-                "--no-push",
-                "--no-workflow",
-                "--dry-run",
-            ],
-        )
+        result = runner.invoke(init_command, ["--no-config", "--no-push", "--dry-run"])
         assert result.exit_code == 0
-        mock_rulesets.assert_not_called()
         mock_settings.assert_not_called()
         mock_push.assert_not_called()
 
     @patch("gh_secrets_and_vars_async.init_cmd.perform_update")
-    @patch("gh_secrets_and_vars_async.init_cmd.apply_template")
     @patch("gh_secrets_and_vars_async.init_cmd.set_repo_settings")
     @patch("gh_secrets_and_vars_async.init_cmd.has_dev_branch")
     @patch("gh_secrets_and_vars_async.init_cmd.get_github_repo")
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
-    def test_init_runs_all(
+    def test_init_runs_settings_and_push(
         self,
         mock_ensure,
         mock_env,
         mock_get_repo,
         mock_has_dev,
         mock_settings,
-        mock_rulesets,
         mock_push,
-        tmp_path,
-        monkeypatch,
     ):
-        monkeypatch.chdir(tmp_path)
         mock_ensure.return_value = ".env"
         mock_env.return_value = ("repo", "account", "token")
-        repo = MagicMock()
-        mock_get_repo.return_value = repo
+        mock_get_repo.return_value = MagicMock()
         mock_has_dev.return_value = False
-        mock_rulesets.return_value = [{"name": "test"}]
-
         mock_push.return_value = {"SECRETS": [], "VARIABLES": []}
 
         runner = CliRunner()
-        result = runner.invoke(init_command, ["--type", "library", "--dry-run"])
+        result = runner.invoke(init_command, ["--dry-run"])
         assert result.exit_code == 0
         mock_settings.assert_called_once()
-        mock_rulesets.assert_called_once()
 
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
@@ -173,5 +116,26 @@ class TestInitCommandCLI:
         mock_env.return_value = ("repo", "account", "")
 
         runner = CliRunner()
-        result = runner.invoke(init_command, ["--type", "library"])
+        result = runner.invoke(init_command, [])
         assert result.exit_code != 0
+
+    @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
+    @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
+    def test_init_missing_repo(self, mock_ensure, mock_env):
+        mock_ensure.return_value = ".env"
+        mock_env.return_value = ("", "", "")
+
+        runner = CliRunner()
+        result = runner.invoke(init_command, [])
+        assert result.exit_code != 0
+
+    def test_init_help_has_no_removed_flags(self):
+        runner = CliRunner()
+        result = runner.invoke(init_command, ["--help"])
+        assert result.exit_code == 0
+        assert "--type" not in result.output
+        assert "--lang" not in result.output
+        assert "--no-rulesets" not in result.output
+        assert "--no-workflow" not in result.output
+        assert "--batch" not in result.output
+        assert "--interactive" not in result.output

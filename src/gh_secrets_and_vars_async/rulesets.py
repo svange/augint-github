@@ -1,3 +1,15 @@
+"""Thin rulesets command: view or safely apply a caller-supplied spec.
+
+ai-gh holds no ruleset template knowledge. Callers (e.g. augint-shell skills)
+generate a ruleset spec in-context and hand it to ``ai-gh rulesets apply``,
+which finds the repo-scope branch ruleset with a matching name and replaces
+only that one -- never touching org-inherited, repository-scope, or tag-scope
+rulesets.
+"""
+
+import json
+from pathlib import Path
+
 import click
 from loguru import logger
 from rich import print
@@ -8,9 +20,9 @@ from .common import (
     configure_logging,
     get_github_repo,
     load_env_config,
-    load_template,
-    normalize_type,
 )
+
+REQUIRED_SPEC_FIELDS = ("name", "target", "rules")
 
 
 def get_rulesets(repo) -> list[dict]:
@@ -29,24 +41,93 @@ def get_rulesets(repo) -> list[dict]:
     return rulesets
 
 
-def delete_all_rulesets(repo, dry_run: bool = False) -> int:
-    """Delete all existing rulesets. Returns count of deleted rulesets."""
-    rulesets = get_rulesets(repo)
-    count = 0
-    for ruleset in rulesets:
-        if dry_run:
-            logger.info(f"[DRY RUN] Would delete ruleset: {ruleset['name']} (id={ruleset['id']})")
-        else:
-            repo._requester.requestJsonAndCheck("DELETE", f"{repo.url}/rulesets/{ruleset['id']}")
-            logger.info(f"Deleted ruleset: {ruleset['name']} (id={ruleset['id']})")
-        count += 1
-    return count
+def validate_ruleset_spec(spec: object) -> None:
+    """Fail fast on a malformed spec. Raises click.ClickException with a clear message."""
+    if not isinstance(spec, dict):
+        raise click.ClickException("Ruleset spec must be a JSON object (dict).")
+
+    for field in REQUIRED_SPEC_FIELDS:
+        if field not in spec:
+            raise click.ClickException(f"Ruleset spec is missing required field: '{field}'.")
+
+    name = spec.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise click.ClickException("Ruleset spec 'name' must be a non-empty string.")
+
+    target = spec.get("target")
+    if target != "branch":
+        raise click.ClickException(
+            f"Ruleset spec 'target' must be 'branch' (got {target!r}). "
+            "ai-gh only applies branch-scope rulesets."
+        )
+
+    rules = spec.get("rules")
+    if not isinstance(rules, list):
+        raise click.ClickException("Ruleset spec 'rules' must be a list.")
 
 
-def create_ruleset(repo, template: dict, dry_run: bool = False) -> dict | None:
-    """Create a new ruleset from a template dict."""
-    # Remove fields that are repo-specific metadata, not part of the creation payload
-    payload = {k: v for k, v in template.items() if k not in ("id", "source_type", "source")}
+def find_replaceable_ruleset(repo, name: str) -> dict | None:
+    """Find the one repo-scope branch ruleset whose name matches.
+
+    Safety filters (the T0-1 fix):
+    - ``target == "branch"`` -- never touch repository or tag scope.
+    - ``source_type == "Repository"`` -- never touch org-inherited rulesets.
+    - ``name`` exact match -- never touch unrelated rulesets.
+    """
+    for rs in get_rulesets(repo):
+        if rs.get("target") != "branch":
+            continue
+        source_type = rs.get("source_type")
+        if source_type and source_type != "Repository":
+            continue
+        if rs.get("name") != name:
+            continue
+        return rs
+    return None
+
+
+def _canonical_ruleset(rs: dict) -> dict:
+    """Normalize a ruleset for structural comparison.
+
+    Strips id/source/source_type metadata and sorts rules and bypass_actors
+    so API-returned ordering differences don't cause false drift.
+    """
+
+    def _rule_sort_key(rule: dict) -> str:
+        return str(rule.get("type", ""))
+
+    def _actor_sort_key(actor: dict) -> tuple[str, int]:
+        return (str(actor.get("actor_type", "")), int(actor.get("actor_id", 0) or 0))
+
+    def _normalize_rule(rule: dict) -> dict:
+        rtype = rule.get("type")
+        if rtype == "required_status_checks":
+            params = dict(rule.get("parameters", {}))
+            checks = params.get("required_status_checks", [])
+            params["required_status_checks"] = sorted(
+                checks, key=lambda c: str(c.get("context", ""))
+            )
+            return {"type": rtype, "parameters": params}
+        return {"type": rtype, "parameters": rule.get("parameters", {})}
+
+    return {
+        "name": rs.get("name"),
+        "target": rs.get("target"),
+        "enforcement": rs.get("enforcement"),
+        "conditions": rs.get("conditions", {}),
+        "rules": sorted((_normalize_rule(r) for r in rs.get("rules", [])), key=_rule_sort_key),
+        "bypass_actors": sorted(rs.get("bypass_actors", []), key=_actor_sort_key),
+    }
+
+
+def rulesets_match(existing: dict, spec: dict) -> bool:
+    """Return True if existing ruleset is already structurally equal to spec."""
+    return _canonical_ruleset(existing) == _canonical_ruleset(spec)
+
+
+def create_ruleset(repo, spec: dict, dry_run: bool = False) -> dict | None:
+    """POST a new ruleset from a spec dict. Strips repo-specific metadata first."""
+    payload = {k: v for k, v in spec.items() if k not in ("id", "source_type", "source")}
     if dry_run:
         logger.info(f"[DRY RUN] Would create ruleset: {payload.get('name', 'unknown')}")
         return payload
@@ -58,68 +139,44 @@ def create_ruleset(repo, template: dict, dry_run: bool = False) -> dict | None:
     return result
 
 
-def apply_template(repo, template_name: str, dry_run: bool = False) -> list[dict]:
-    """Apply a ruleset template set. Deletes all existing rulesets first.
+def apply_ruleset_spec(repo, spec: dict, dry_run: bool = False) -> dict | None:
+    """Apply one ruleset spec safely and idempotently.
 
-    Args:
-        repo: GitHub Repository object.
-        template_name: "service" or "library" ("iac" accepted as alias for "service").
-        dry_run: If True, no changes are made.
+    - Validates the spec.
+    - Finds a replaceable repo-scope branch ruleset with the same name.
+    - If none found: create.
+    - If found and already structurally equal: no-op.
+    - If found but drifted: DELETE that one, then create the new version.
 
-    Returns:
-        List of created ruleset dicts.
+    Never touches org-inherited, repository-scope, or tag-scope rulesets.
     """
-    deleted = delete_all_rulesets(repo, dry_run=dry_run)
-    if deleted:
-        print(f"Removed {deleted} existing ruleset(s).")
+    validate_ruleset_spec(spec)
+    name = spec["name"]
 
-    if template_name == "service":
-        template_dicts: list[dict] = [
-            load_template("rulesets", "service_dev"),  # type: ignore[list-item]
-            load_template("rulesets", "service_production"),  # type: ignore[list-item]
-        ]
-    elif template_name == "library":
-        template_dicts = [
-            load_template("rulesets", "library"),  # type: ignore[list-item]
-        ]
-    else:
-        raise click.BadParameter(f"Unknown template: {template_name}. Use 'service' or 'library'.")
+    existing = find_replaceable_ruleset(repo, name)
 
-    results: list[dict] = []
-    for tmpl in template_dicts:
-        result = create_ruleset(repo, tmpl, dry_run=dry_run)
-        if result is not None:
-            results.append(result)
+    if existing is not None and rulesets_match(existing, spec):
+        logger.info(f"Ruleset '{name}' already up-to-date (id={existing.get('id', '?')}).")
+        print(f"[green]Ruleset '{name}' is up-to-date. No changes.[/green]")
+        return existing
 
-    return results
+    if existing is not None:
+        rs_id = existing.get("id")
+        if dry_run:
+            logger.info(f"[DRY RUN] Would delete drifted ruleset '{name}' (id={rs_id})")
+        else:
+            repo._requester.requestJsonAndCheck("DELETE", f"{repo.url}/rulesets/{rs_id}")
+            logger.info(f"Deleted drifted ruleset '{name}' (id={rs_id})")
 
-
-def apply_custom_rulesets(
-    repo,
-    rulesets: list[dict],
-    replace_existing: bool = True,
-    dry_run: bool = False,
-) -> list[dict]:
-    """Apply user-built rulesets. Optionally deletes existing rulesets first.
-
-    Unlike :func:`apply_template`, this accepts pre-built ruleset dicts
-    rather than loading from JSON templates.
-    """
-    if replace_existing:
-        deleted = delete_all_rulesets(repo, dry_run=dry_run)
-        if deleted:
-            print(f"Removed {deleted} existing ruleset(s).")
-
-    results: list[dict] = []
-    for ruleset in rulesets:
-        result = create_ruleset(repo, ruleset, dry_run=dry_run)
-        if result is not None:
-            results.append(result)
-    return results
+    return create_ruleset(repo, spec, dry_run=dry_run)
 
 
 def display_rulesets(rulesets: list[dict]) -> None:
-    """Pretty-print rulesets using Rich."""
+    """Pretty-print rulesets using Rich.
+
+    Shows name, enforcement, target, source_type (so org-inherited vs
+    repo-owned is visible), branch patterns, rules, and bypass actors.
+    """
     if not rulesets:
         print("[yellow]No rulesets configured for this repository.[/yellow]")
         return
@@ -129,7 +186,9 @@ def display_rulesets(rulesets: list[dict]) -> None:
         table.add_column("Field", style="bold cyan")
         table.add_column("Value")
 
-        table.add_row("Enforcement", rs.get("enforcement", "unknown"))
+        table.add_row("Enforcement", str(rs.get("enforcement", "unknown")))
+        table.add_row("Target", str(rs.get("target", "unknown")))
+        table.add_row("Source", str(rs.get("source_type", "Repository")))
 
         conditions = rs.get("conditions", {}).get("ref_name", {})
         branches = ", ".join(conditions.get("include", []))
@@ -144,7 +203,7 @@ def display_rulesets(rulesets: list[dict]) -> None:
                 rule_types.append(f"status_checks: {', '.join(check_names)}")
             else:
                 rule_types.append(rule["type"])
-        table.add_row("Rules", "\n".join(rule_types))
+        table.add_row("Rules", "\n".join(rule_types) if rule_types else "none")
 
         bypass = rs.get("bypass_actors", [])
         bypass_desc = [f"{b.get('actor_type', '?')} ({b.get('bypass_mode', '?')})" for b in bypass]
@@ -153,36 +212,66 @@ def display_rulesets(rulesets: list[dict]) -> None:
         print(Panel(table, title=f"[bold]{rs.get('name', 'Unnamed')}[/bold]", expand=False))
 
 
-@click.command("rulesets")
-@click.option("--view", is_flag=True, default=False, help="Show current rulesets.")
-@click.option(
-    "--apply",
-    "apply_template_name",
-    type=click.Choice(["service", "library", "iac"]),
-    default=None,
-    help="Apply a ruleset template (replaces all existing rulesets).",
-)
+@click.group("rulesets")
+def rulesets_command() -> None:
+    """View or apply branch rulesets to a GitHub repository."""
+
+
+@rulesets_command.command("view")
 @click.option("--verbose", "-v", is_flag=True, help="Print detailed output.")
+def view_cmd(verbose: bool) -> None:
+    """Show the current rulesets on the repository."""
+    configure_logging(verbose)
+    gh_repo, gh_account, _ = load_env_config()
+    if not gh_repo or not gh_account:
+        raise click.ClickException("GH_REPO and GH_ACCOUNT must be set in .env or environment.")
+    repo = get_github_repo(gh_account, gh_repo)
+    rulesets = get_rulesets(repo)
+    display_rulesets(rulesets)
+
+
+@rulesets_command.command("apply")
+@click.argument(
+    "spec_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
 @click.option(
     "--dry-run", "-d", is_flag=True, help="Show what would be done without making changes."
 )
-def rulesets_command(view: bool, apply_template_name: str | None, verbose: bool, dry_run: bool):
-    """View or apply branch rulesets to a GitHub repository."""
+@click.option("--verbose", "-v", is_flag=True, help="Print detailed output.")
+def apply_cmd(spec_path: Path, dry_run: bool, verbose: bool) -> None:
+    """Apply a caller-supplied ruleset JSON spec to the repository.
+
+    SPEC_PATH must point to a JSON file containing a single ruleset object
+    conforming to GitHub's ruleset schema. The spec's 'name' is the match key:
+    an existing repo-scope branch ruleset with the same name is replaced
+    surgically. Org-inherited and non-branch rulesets are never touched.
+    """
     configure_logging(verbose)
-    gh_repo, gh_account, gh_token = load_env_config()
+
+    try:
+        raw = spec_path.read_text()
+    except OSError as e:
+        raise click.ClickException(f"Cannot read spec file {spec_path}: {e}") from e
+
+    try:
+        spec = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise click.ClickException(f"Spec file {spec_path} is not valid JSON: {e}") from e
+
+    validate_ruleset_spec(spec)
+
+    gh_repo, gh_account, _ = load_env_config()
     if not gh_repo or not gh_account:
         raise click.ClickException("GH_REPO and GH_ACCOUNT must be set in .env or environment.")
-
     repo = get_github_repo(gh_account, gh_repo)
 
-    if apply_template_name:
-        apply_template_name = normalize_type(apply_template_name)
-        results = apply_template(repo, apply_template_name, dry_run=dry_run)
-        print(
-            f"\n[green]Applied '{apply_template_name}' template ({len(results)} ruleset(s)).[/green]"
-        )
-        if verbose:
-            display_rulesets(results)
-    else:
-        rulesets = get_rulesets(repo)
-        display_rulesets(rulesets)
+    try:
+        result = apply_ruleset_spec(repo, spec, dry_run=dry_run)
+    except click.ClickException:
+        raise
+    except Exception as e:
+        raise click.ClickException(f"Failed to apply ruleset spec: {e}") from e
+
+    if result is not None and verbose:
+        display_rulesets([result])
