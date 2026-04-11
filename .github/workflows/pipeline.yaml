@@ -262,7 +262,7 @@ jobs:
       released: ${{ steps.release.outputs.released }}
       version: ${{ steps.release.outputs.version }}
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
@@ -298,6 +298,8 @@ jobs:
 
       - name: Run semantic release
         id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RELEASED="false"
           VERSION=""
