@@ -60,7 +60,6 @@ def _make_test_command(func):
 class TestInitCommandCLI:
     @patch("gh_secrets_and_vars_async.init_cmd.perform_update")
     @patch("gh_secrets_and_vars_async.init_cmd.set_repo_settings")
-    @patch("gh_secrets_and_vars_async.init_cmd.has_dev_branch")
     @patch("gh_secrets_and_vars_async.init_cmd.get_github_repo")
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
@@ -69,7 +68,6 @@ class TestInitCommandCLI:
         mock_ensure,
         mock_env,
         mock_get_repo,
-        mock_has_dev,
         mock_settings,
         mock_push,
     ):
@@ -85,7 +83,6 @@ class TestInitCommandCLI:
 
     @patch("gh_secrets_and_vars_async.init_cmd.perform_update")
     @patch("gh_secrets_and_vars_async.init_cmd.set_repo_settings")
-    @patch("gh_secrets_and_vars_async.init_cmd.has_dev_branch")
     @patch("gh_secrets_and_vars_async.init_cmd.get_github_repo")
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
@@ -94,14 +91,12 @@ class TestInitCommandCLI:
         mock_ensure,
         mock_env,
         mock_get_repo,
-        mock_has_dev,
         mock_settings,
         mock_push,
     ):
         mock_ensure.return_value = ".env"
         mock_env.return_value = ("repo", "account", "token")
         mock_get_repo.return_value = MagicMock()
-        mock_has_dev.return_value = False
         mock_push.return_value = {"SECRETS": [], "VARIABLES": []}
 
         runner = CliRunner()
