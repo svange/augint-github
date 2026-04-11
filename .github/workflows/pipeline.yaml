@@ -262,7 +262,7 @@ jobs:
       released: ${{ steps.release.outputs.released }}
       version: ${{ steps.release.outputs.version }}
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
@@ -298,25 +298,43 @@ jobs:
 
       - name: Run semantic release
         id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RELEASED="false"
-          VERSION=""
+          # Fail loudly on any error. No silent swallow.
+          set -euo pipefail
 
-          set +e
-          uv run semantic-release --strict version
-          SEMANTIC_EXIT_CODE=$?
-          set -e
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "::notice::Previous tag: ${PREV_TAG:-<none>}"
 
-          if [ $SEMANTIC_EXIT_CODE -eq 0 ]; then
-            echo "Semantic release succeeded"
-            RELEASED="true"
-            VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          # Drop --strict. With --strict, PSR exits non-zero on "no release needed",
+          # which is a normal no-op, not an error. Without --strict, PSR exits 0 on
+          # no-op and non-zero only on ACTUAL errors (token, network, HVCS API,
+          # build) -- exactly what set -e should catch. We detect whether a release
+          # happened via tag comparison below.
+          uv run semantic-release version
+
+          NEW_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -n "$NEW_TAG" ] && [ "$NEW_TAG" != "$PREV_TAG" ]; then
+            VERSION="${NEW_TAG#v}"
+            echo "::notice::Released $NEW_TAG"
+
+            # Defense in depth: the tag was pushed, so verify the Release object
+            # exists. Catches the failure mode where PSR pushes a tag but its
+            # HVCS call fails silently.
+            if ! gh release view "$NEW_TAG" >/dev/null 2>&1; then
+              echo "::error::semantic-release pushed tag $NEW_TAG but no GitHub Release exists. Refusing to proceed silently."
+              exit 1
+            fi
+
+            echo "released=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
           else
-            echo "No release needed"
+            echo "::notice::No release needed (no conventional commits since ${PREV_TAG:-<start>})."
+            echo "released=false" >> $GITHUB_OUTPUT
+            echo "version=" >> $GITHUB_OUTPUT
           fi
-
-          echo "released=$RELEASED" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Upload distribution artifacts
         if: steps.release.outputs.released == 'true'
