@@ -14,7 +14,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from .common import configure_logging, get_github_repo, load_env_config
-from .config import has_dev_branch, set_repo_settings
+from .config import set_repo_settings
 from .push import perform_update
 
 
@@ -95,10 +95,9 @@ def init_command(no_config: bool, no_push: bool, verbose: bool, dry_run: bool) -
 
     # Repo settings
     if not no_config:
-        dev = has_dev_branch(repo)
-        set_repo_settings(repo, delete_branch_on_merge=not dev, dry_run=dry_run)
+        set_repo_settings(repo, dry_run=dry_run)
         summary.add_row("Merge strategy", "merge commits only")
-        summary.add_row("Delete branch on merge", str(not dev))
+        summary.add_row("Delete branch on merge", "True")
     else:
         summary.add_row("Repo settings", "skipped")
 

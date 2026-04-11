@@ -38,21 +38,16 @@ def set_auto_merge(repo, enabled: bool, dry_run: bool = False) -> None:
     print(f"Auto-merge: {'enabled' if enabled else 'disabled'}")
 
 
-def set_repo_settings(repo, delete_branch_on_merge: bool, dry_run: bool = False) -> None:
+def set_repo_settings(repo, dry_run: bool = False) -> None:
     """Apply standardized repository merge and auto-merge settings.
 
     Enforces merge commits only (no squash/rebase), PR_TITLE/PR_BODY format,
-    auto-merge enabled, and configurable branch deletion on merge.
+    auto-merge enabled, and always delete branches on merge. Dev branches
+    are protected from deletion by the branch ruleset, not by this flag.
     """
     if dry_run:
-        logger.info(
-            f"[DRY RUN] Would set: merge commits only, "
-            f"delete_branch_on_merge={delete_branch_on_merge}"
-        )
-        print(
-            f"[dim]Would apply standard settings "
-            f"(delete_branch_on_merge={delete_branch_on_merge})[/dim]"
-        )
+        logger.info("[DRY RUN] Would set: merge commits only, delete_branch_on_merge=True")
+        print("[dim]Would apply standard settings (delete_branch_on_merge=True)[/dim]")
         return
 
     repo.edit(
@@ -62,12 +57,10 @@ def set_repo_settings(repo, delete_branch_on_merge: bool, dry_run: bool = False)
         allow_auto_merge=True,
         merge_commit_title="PR_TITLE",
         merge_commit_message="PR_BODY",
-        delete_branch_on_merge=delete_branch_on_merge,
+        delete_branch_on_merge=True,
     )
     logger.info("Repository settings updated.")
-    print(
-        f"Merge: commits only (PR_TITLE / PR_BODY), delete_branch_on_merge={delete_branch_on_merge}"
-    )
+    print("Merge: commits only (PR_TITLE / PR_BODY), delete_branch_on_merge=True")
 
 
 def display_repo_settings(repo, gh_account: str, gh_repo: str) -> None:
@@ -104,8 +97,7 @@ def config_command(
     repo = get_github_repo(gh_account, gh_repo)
 
     if standardize:
-        dev = has_dev_branch(repo)
-        set_repo_settings(repo, delete_branch_on_merge=not dev, dry_run=dry_run)
+        set_repo_settings(repo, dry_run=dry_run)
     elif auto_merge is not None:
         set_auto_merge(repo, auto_merge, dry_run=dry_run)
     else:
