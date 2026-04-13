@@ -59,16 +59,14 @@ def _make_test_command(func):
 
 class TestInitCommandCLI:
     @patch("gh_secrets_and_vars_async.init_cmd.perform_update")
-    @patch("gh_secrets_and_vars_async.init_cmd.set_repo_settings")
     @patch("gh_secrets_and_vars_async.init_cmd.get_github_repo")
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
-    def test_init_skip_all(
+    def test_init_skip_push(
         self,
         mock_ensure,
         mock_env,
         mock_get_repo,
-        mock_settings,
         mock_push,
     ):
         mock_ensure.return_value = ".env"
@@ -76,22 +74,19 @@ class TestInitCommandCLI:
         mock_get_repo.return_value = MagicMock()
 
         runner = CliRunner()
-        result = runner.invoke(init_command, ["--no-config", "--no-push", "--dry-run"])
+        result = runner.invoke(init_command, ["--no-push", "--dry-run"])
         assert result.exit_code == 0
-        mock_settings.assert_not_called()
         mock_push.assert_not_called()
 
     @patch("gh_secrets_and_vars_async.init_cmd.perform_update")
-    @patch("gh_secrets_and_vars_async.init_cmd.set_repo_settings")
     @patch("gh_secrets_and_vars_async.init_cmd.get_github_repo")
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
-    def test_init_runs_settings_and_push(
+    def test_init_runs_push(
         self,
         mock_ensure,
         mock_env,
         mock_get_repo,
-        mock_settings,
         mock_push,
     ):
         mock_ensure.return_value = ".env"
@@ -102,7 +97,7 @@ class TestInitCommandCLI:
         runner = CliRunner()
         result = runner.invoke(init_command, ["--dry-run"])
         assert result.exit_code == 0
-        mock_settings.assert_called_once()
+        mock_push.assert_called_once()
 
     @patch("gh_secrets_and_vars_async.init_cmd.load_env_config")
     @patch("gh_secrets_and_vars_async.init_cmd.ensure_env_file")
@@ -130,6 +125,7 @@ class TestInitCommandCLI:
         assert result.exit_code == 0
         assert "--type" not in result.output
         assert "--lang" not in result.output
+        assert "--no-config" not in result.output
         assert "--no-rulesets" not in result.output
         assert "--no-workflow" not in result.output
         assert "--batch" not in result.output

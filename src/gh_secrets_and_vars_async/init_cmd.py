@@ -1,8 +1,8 @@
-"""Lightweight repo bootstrap: ensure .env, apply repo settings, push secrets.
+"""Lightweight repo bootstrap: ensure .env and push secrets.
 
-For full repository standardization (rulesets, pipeline, pre-commit, renovate,
-release, dotfiles) use ``/ai-standardize-repo`` from augint-shell. ai-gh init
-is intentionally minimal.
+For full repository standardization (repo settings, rulesets, pipeline,
+pre-commit, renovate, release, dotfiles) use ``/ai-standardize-repo``
+from augint-shell. ai-gh init is intentionally minimal.
 """
 
 import asyncio
@@ -14,7 +14,6 @@ from rich.panel import Panel
 from rich.table import Table
 
 from .common import configure_logging, get_github_repo, load_env_config
-from .config import set_repo_settings
 from .push import perform_update
 
 
@@ -59,17 +58,16 @@ def ensure_env_file(filename: str = ".env") -> str:
 
 
 @click.command("init")
-@click.option("--no-config", is_flag=True, help="Skip repo settings step.")
 @click.option("--no-push", is_flag=True, help="Skip secrets/variables push step.")
 @click.option("--verbose", "-v", is_flag=True, help="Print detailed output.")
 @click.option(
     "--dry-run", "-d", is_flag=True, help="Show what would be done without making changes."
 )
-def init_command(no_config: bool, no_push: bool, verbose: bool, dry_run: bool) -> None:
-    """Bootstrap a GitHub repository: settings + secrets.
+def init_command(no_push: bool, verbose: bool, dry_run: bool) -> None:
+    """Bootstrap a GitHub repository: .env + secrets.
 
-    For full standardization (rulesets, pipeline, pre-commit, renovate, etc.)
-    use /ai-standardize-repo from augint-shell.
+    For full standardization (repo settings, rulesets, pipeline, pre-commit,
+    renovate, etc.) use /ai-standardize-repo from augint-shell.
     """
     configure_logging(verbose)
 
@@ -82,7 +80,7 @@ def init_command(no_config: bool, no_push: bool, verbose: bool, dry_run: bool) -
         raise click.ClickException("GH_TOKEN is required.")
 
     try:
-        repo = get_github_repo(gh_account, gh_repo)
+        get_github_repo(gh_account, gh_repo)
     except Exception as e:
         raise click.ClickException(f"Cannot connect to {gh_account}/{gh_repo}: {e}") from e
 
@@ -92,14 +90,6 @@ def init_command(no_config: bool, no_push: bool, verbose: bool, dry_run: bool) -
     summary.add_column("Setting", style="bold")
     summary.add_column("Result")
     summary.add_row("Repository", f"{gh_account}/{gh_repo}")
-
-    # Repo settings
-    if not no_config:
-        set_repo_settings(repo, dry_run=dry_run)
-        summary.add_row("Merge strategy", "merge commits only")
-        summary.add_row("Delete branch on merge", "True")
-    else:
-        summary.add_row("Repo settings", "skipped")
 
     # Secrets push
     if not no_push:
@@ -112,6 +102,6 @@ def init_command(no_config: bool, no_push: bool, verbose: bool, dry_run: bool) -
     print()
     print(Panel(summary, title="[bold green]Setup Complete[/bold green]", expand=False))
     print(
-        "[dim]For rulesets, pipeline, pre-commit, renovate, release, and dotfiles, "
-        "run /ai-standardize-repo in augint-shell.[/dim]"
+        "[dim]For repo settings, rulesets, pipeline, pre-commit, renovate, release, "
+        "and dotfiles, run /ai-standardize-repo in augint-shell.[/dim]"
     )
