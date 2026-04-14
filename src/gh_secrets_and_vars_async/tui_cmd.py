@@ -105,16 +105,33 @@ def _warn_rate_limit(repo_count: int, refresh_seconds: int) -> None:
     help="Refresh interval in seconds.",
 )
 @click.option("--org", type=str, default=None, help="Specify organization directly.")
+@click.option(
+    "--layout",
+    "-l",
+    "layout_name",
+    type=str,
+    default="default",
+    show_default=True,
+    help="Dashboard layout (default, compact, cyber).",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show additional detail.")
 def tui_command(
     show_all: bool,
     interactive: bool,
     refresh_seconds: int,
     org: str | None,
+    layout_name: str,
     verbose: bool,
 ) -> None:
     """Live dashboard showing pipeline status, issues, and PRs."""
     configure_logging(verbose)
+
+    from .tui_layouts import available_layouts
+
+    if layout_name not in available_layouts():
+        raise click.ClickException(
+            f"Unknown layout '{layout_name}'. Available: {', '.join(available_layouts())}"
+        )
 
     _, gh_account, _ = load_env_config()
     g = get_github_client()
@@ -148,6 +165,6 @@ def tui_command(
     _warn_rate_limit(len(repos), refresh_seconds)
 
     try:
-        run_dashboard(repos, refresh_seconds)
+        run_dashboard(repos, refresh_seconds, layout_name=layout_name)
     except KeyboardInterrupt:
         print("\n[dim]Dashboard stopped.[/dim]")

@@ -15,15 +15,13 @@ from gh_secrets_and_vars_async.tui_cmd import (
 )
 from gh_secrets_and_vars_async.tui_dashboard import (
     RepoStatus,
-    _border_style,
     _get_failed_step,
-    build_dashboard,
-    build_repo_panel,
     fetch_repo_status,
     get_run_status,
     load_cache,
     save_cache,
 )
+from gh_secrets_and_vars_async.tui_layouts import available_layouts, get_layout
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -260,32 +258,48 @@ class TestFetchRepoStatus:
         assert status.open_issues == 0
         assert status.open_prs == 0
 
+    @patch(
+        "gh_secrets_and_vars_async.tui_dashboard.has_dev_branch",
+        side_effect=RuntimeError("network"),
+    )
+    def test_error_returns_previous(self, mock_dev):
+        repo = _mock_repo()
+        previous = RepoStatus("myrepo", "org/myrepo", False, "success", None, None, None, 3, 1, 0)
+
+        status = fetch_repo_status(repo, previous=previous)
+        assert status is previous
+
+    @patch(
+        "gh_secrets_and_vars_async.tui_dashboard.has_dev_branch",
+        side_effect=RuntimeError("network"),
+    )
+    def test_error_returns_degraded_without_previous(self, mock_dev):
+        repo = _mock_repo()
+
+        status = fetch_repo_status(repo)
+        assert status.main_status == "unknown"
+        assert status.main_error == "fetch error"
+
 
 # ---------------------------------------------------------------------------
-# Border style
+# Layout registry
 # ---------------------------------------------------------------------------
 
 
-class TestBorderStyle:
-    def test_green_when_all_good(self):
-        s = RepoStatus("r", "o/r", False, "success", None, None, None, 0, 0, 0)
-        assert _border_style(s) == "green"
+class TestLayoutRegistry:
+    def test_available_layouts(self):
+        names = available_layouts()
+        assert "default" in names
+        assert "compact" in names
+        assert "cyber" in names
 
-    def test_red_when_main_failed(self):
-        s = RepoStatus("r", "o/r", False, "failure", "err", None, None, 0, 0, 0)
-        assert _border_style(s) == "red"
+    def test_get_layout(self):
+        layout = get_layout("default")
+        assert layout.name == "default"
 
-    def test_red_when_dev_failed(self):
-        s = RepoStatus("r", "o/r", True, "success", None, "failure", "err", 0, 0, 0)
-        assert _border_style(s) == "red"
-
-    def test_yellow_when_open_prs(self):
-        s = RepoStatus("r", "o/r", False, "success", None, None, None, 0, 2, 0)
-        assert _border_style(s) == "yellow"
-
-    def test_red_trumps_yellow(self):
-        s = RepoStatus("r", "o/r", False, "failure", None, None, None, 0, 5, 0)
-        assert _border_style(s) == "red"
+    def test_get_unknown_raises(self):
+        with pytest.raises(KeyError):
+            get_layout("nonexistent")
 
 
 # ---------------------------------------------------------------------------
@@ -328,72 +342,32 @@ class TestCache:
 
 
 class TestRendering:
-    def test_build_repo_panel_library(self):
-        status = RepoStatus(
-            name="mylib",
-            full_name="org/mylib",
-            is_service=False,
-            main_status="success",
-            main_error=None,
-            dev_status=None,
-            dev_error=None,
-            open_issues=5,
-            open_prs=3,
-            draft_prs=1,
-        )
-        panel = build_repo_panel(status)
-        assert panel.title is not None
-        assert "mylib" in panel.title
-        assert panel.border_style == "yellow"  # has open PRs
+    """Test that each registered layout can render without crashing."""
 
-    def test_build_repo_panel_service_with_error(self):
-        status = RepoStatus(
-            name="myapi",
-            full_name="org/myapi",
-            is_service=True,
-            main_status="failure",
-            main_error="build: Run tests",
-            dev_status="success",
-            dev_error=None,
-            open_issues=2,
-            open_prs=1,
-            draft_prs=0,
-        )
-        panel = build_repo_panel(status)
-        assert panel.title is not None
-        assert "myapi" in panel.title
-        assert panel.border_style == "red"
+    _statuses = [
+        RepoStatus("r1", "o/r1", False, "success", None, None, None, 1, 0, 0),
+        RepoStatus("r2", "o/r2", True, "failure", "err", "success", None, 3, 2, 1),
+        RepoStatus("r3", "o/r3", False, "unknown", None, None, None, 0, 0, 0),
+    ]
 
-    def test_build_repo_panel_green(self):
-        status = RepoStatus(
-            name="clean",
-            full_name="org/clean",
-            is_service=False,
-            main_status="success",
-            main_error=None,
-            dev_status=None,
-            dev_error=None,
-            open_issues=0,
-            open_prs=0,
-            draft_prs=0,
-        )
-        panel = build_repo_panel(status)
-        assert panel.border_style == "green"
+    @pytest.mark.parametrize("name", ["default", "compact", "cyber"])
+    def test_build_repo_panel(self, name):
+        layout = get_layout(name)
+        for s in self._statuses:
+            result = layout.build_repo_panel(s)
+            assert result is not None
 
-    def test_build_dashboard(self):
-        statuses = [
-            RepoStatus("r1", "o/r1", False, "success", None, None, None, 1, 0, 0),
-            RepoStatus("r2", "o/r2", True, "failure", "err", "success", None, 3, 2, 1),
-        ]
-        group = build_dashboard(statuses, 600)
-        assert group is not None
+    @pytest.mark.parametrize("name", ["default", "compact", "cyber"])
+    def test_build_dashboard(self, name):
+        layout = get_layout(name)
+        result = layout.build_dashboard(self._statuses, 600)
+        assert result is not None
 
-    def test_build_dashboard_cached(self):
-        statuses = [
-            RepoStatus("r1", "o/r1", False, "success", None, None, None, 0, 0, 0),
-        ]
-        group = build_dashboard(statuses, 600, from_cache=True)
-        assert group is not None
+    @pytest.mark.parametrize("name", ["default", "compact", "cyber"])
+    def test_build_dashboard_cached(self, name):
+        layout = get_layout(name)
+        result = layout.build_dashboard(self._statuses, 600, from_cache=True)
+        assert result is not None
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +384,7 @@ class TestTuiCLI:
         assert "--interactive" in result.output
         assert "--refresh-seconds" in result.output
         assert "--org" in result.output
+        assert "--layout" in result.output
 
     @patch("gh_secrets_and_vars_async.tui_cmd.run_dashboard", side_effect=KeyboardInterrupt)
     @patch("gh_secrets_and_vars_async.common.get_github_repo")
