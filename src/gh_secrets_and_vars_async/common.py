@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 from dotenv import load_dotenv
@@ -24,12 +25,35 @@ def load_env_config(filename: str = ".env") -> tuple[str, str, str]:
     return gh_repo, gh_account, gh_token
 
 
+def _resolve_token() -> str:
+    """Return a GitHub token from GH_TOKEN env var or ``gh auth token`` CLI."""
+    token = os.environ.get("GH_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        token = result.stdout.strip()
+        if token:
+            return token
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    raise RuntimeError(
+        "No GitHub token found. Set GH_TOKEN in .env / environment, "
+        "or authenticate with: gh auth login"
+    )
+
+
 def get_github_repo(github_account: str, github_repo_name: str) -> Repository:
     """Get the GitHub repository object.
 
     Tries user lookup first, falls back to organization.
     """
-    token = os.environ.get("GH_TOKEN", "")
+    token = _resolve_token()
     auth = Auth.Token(token)
     g = Github(auth=auth)
     try:
@@ -43,7 +67,7 @@ def get_github_repo(github_account: str, github_repo_name: str) -> Repository:
 
 
 def get_github_client() -> Github:
-    """Create an authenticated Github client from GH_TOKEN env var."""
-    token = os.environ.get("GH_TOKEN", "")
+    """Create an authenticated Github client from GH_TOKEN or ``gh auth token``."""
+    token = _resolve_token()
     auth = Auth.Token(token)
     return Github(auth=auth)
