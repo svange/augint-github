@@ -1,28 +1,18 @@
-"""Data fetching, caching, and Rich rendering for the TUI dashboard."""
+"""Data fetching, caching, and layout-delegated rendering for the TUI dashboard."""
 
 from __future__ import annotations
 
 import json
 import time
+import traceback
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
 from github.GithubException import GithubException
 from github.Repository import Repository
-from rich.columns import Columns
-from rich.console import Group
-from rich.panel import Panel
-from rich.text import Text
+from loguru import logger
 
 from .config import has_dev_branch
-
-STATUS_ICON = {
-    "success": "[green]\u25cf[/green]",
-    "failure": "[red]\u25cf[/red]",
-    "in_progress": "[yellow]\u25cf[/yellow]",
-    "unknown": "[dim]\u25cf[/dim]",
-}
 
 CACHE_DIR = Path.home() / ".cache" / "ai-gh"
 CACHE_FILE = CACHE_DIR / "tui_cache.json"
@@ -107,103 +97,59 @@ def get_run_status(repo: Repository, branch: str) -> tuple[str, str | None]:
         return "unknown", None
 
 
-def fetch_repo_status(repo: Repository) -> RepoStatus:
-    """Fetch status data for a single repository."""
-    service = has_dev_branch(repo)
-    main_status, main_error = get_run_status(repo, repo.default_branch)
-    if service:
-        dev_status, dev_error = get_run_status(repo, "dev")
-    else:
-        dev_status, dev_error = None, None
+def fetch_repo_status(
+    repo: Repository,
+    previous: RepoStatus | None = None,
+) -> RepoStatus:
+    """Fetch status data for a single repository.
 
-    pulls = repo.get_pulls(state="open")
-    open_prs = pulls.totalCount
-    draft_prs = sum(1 for pr in pulls if pr.draft)
+    On any unexpected error returns *previous* (stale data) when available,
+    or a degraded placeholder so the dashboard never crashes.
+    """
+    try:
+        service = has_dev_branch(repo)
+        main_status, main_error = get_run_status(repo, repo.default_branch)
+        if service:
+            dev_status, dev_error = get_run_status(repo, "dev")
+        else:
+            dev_status, dev_error = None, None
 
-    # open_issues_count includes PRs in GitHub's API
-    open_issues = max(0, repo.open_issues_count - open_prs)
+        pulls = repo.get_pulls(state="open")
+        open_prs = pulls.totalCount
+        draft_prs = sum(1 for pr in pulls if pr.draft)
 
-    return RepoStatus(
-        name=repo.name,
-        full_name=repo.full_name,
-        is_service=service,
-        main_status=main_status,
-        main_error=main_error,
-        dev_status=dev_status,
-        dev_error=dev_error,
-        open_issues=open_issues,
-        open_prs=open_prs,
-        draft_prs=draft_prs,
-    )
+        # open_issues_count includes PRs in GitHub's API
+        open_issues = max(0, repo.open_issues_count - open_prs)
 
-
-# ---------------------------------------------------------------------------
-# Rendering
-# ---------------------------------------------------------------------------
-
-
-def _border_style(status: RepoStatus) -> str:
-    """Determine panel border color based on repo state."""
-    if status.main_status == "failure":
-        return "red"
-    if status.dev_status == "failure":
-        return "red"
-    if status.open_prs > 0:
-        return "yellow"
-    return "green"
-
-
-def build_repo_panel(status: RepoStatus) -> Panel:
-    """Build a Rich Panel for a single repo's status."""
-    lines = Text()
-
-    if status.is_service and status.dev_status is not None:
-        lines.append("dev: ")
-        lines.append_text(Text.from_markup(STATUS_ICON[status.dev_status]))
-        lines.append("  main: ")
-        lines.append_text(Text.from_markup(STATUS_ICON[status.main_status]))
-    else:
-        lines.append("main: ")
-        lines.append_text(Text.from_markup(STATUS_ICON[status.main_status]))
-
-    # Error details for failed branches
-    for error in (status.dev_error, status.main_error):
-        if error:
-            lines.append("\n")
-            truncated = error if len(error) <= 40 else error[:37] + "..."
-            lines.append_text(Text.from_markup(f"[red]> {truncated}[/red]"))
-
-    lines.append("\n")
-    pr_label = f"PRs: {status.open_prs}"
-    if status.draft_prs:
-        pr_label += f" ({status.draft_prs})"
-    lines.append(f"Issues: {status.open_issues}  {pr_label}")
-
-    return Panel(
-        lines,
-        title=f"[bold]{status.name}[/bold]",
-        width=46,
-        padding=(0, 1),
-        border_style=_border_style(status),
-    )
-
-
-def build_dashboard(
-    statuses: list[RepoStatus],
-    refresh_seconds: int,
-    *,
-    from_cache: bool = False,
-) -> Group:
-    """Build the full dashboard renderable."""
-    now = datetime.now(UTC).strftime("%H:%M:%S UTC")
-    cache_tag = "  [dim](cached)[/dim]" if from_cache else ""
-    header = Text.from_markup(
-        f"[bold]ai-gh dashboard[/bold]  |  {now}  |  refresh: {refresh_seconds}s{cache_tag}"
-    )
-    panels = [build_repo_panel(s) for s in statuses]
-    columns = Columns(panels, padding=(1, 1), expand=False)
-    footer = Text.from_markup("[dim]Press Ctrl+C to exit[/dim]")
-    return Group(header, Text(), columns, Text(), footer)
+        return RepoStatus(
+            name=repo.name,
+            full_name=repo.full_name,
+            is_service=service,
+            main_status=main_status,
+            main_error=main_error,
+            dev_status=dev_status,
+            dev_error=dev_error,
+            open_issues=open_issues,
+            open_prs=open_prs,
+            draft_prs=draft_prs,
+        )
+    except Exception:
+        logger.debug(f"fetch failed for {repo.full_name}: {traceback.format_exc()}")
+        if previous is not None:
+            return previous
+        # Degraded placeholder -- keeps the dashboard alive
+        return RepoStatus(
+            name=repo.name,
+            full_name=repo.full_name,
+            is_service=False,
+            main_status="unknown",
+            main_error="fetch error",
+            dev_status=None,
+            dev_error=None,
+            open_issues=0,
+            open_prs=0,
+            draft_prs=0,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -211,30 +157,70 @@ def build_dashboard(
 # ---------------------------------------------------------------------------
 
 
-def run_dashboard(repos: list[Repository], refresh_seconds: int) -> None:
-    """Run the live-updating dashboard loop."""
+def _refresh(
+    repos: list[Repository],
+    previous: list[RepoStatus],
+) -> list[RepoStatus]:
+    """Fetch fresh statuses, falling back to *previous* per-repo on error."""
+    prev_map = {s.full_name: s for s in previous}
+    return [fetch_repo_status(r, prev_map.get(r.full_name)) for r in repos]
+
+
+def run_dashboard(
+    repos: list[Repository],
+    refresh_seconds: int,
+    layout_name: str = "default",
+) -> None:
+    """Run the live-updating dashboard loop.
+
+    Resilient to transient errors: API failures, rate limits, network
+    drops, and even layout rendering bugs are caught and shown as an
+    error banner while the last good frame is preserved.
+    """
     from rich.console import Console
     from rich.live import Live
     from rich.status import Status
+    from rich.text import Text
 
+    from .tui_layouts import get_layout
+
+    layout = get_layout(layout_name)
     console = Console()
     repo_names = {r.full_name for r in repos}
+    consecutive_errors = 0
 
     # Try to show cached data immediately while fetching fresh data
     cache = load_cache()
     cached = [cache[name] for name in repo_names if name in cache]
     if cached:
-        console.print(build_dashboard(cached, refresh_seconds, from_cache=True))
+        console.print(layout.build_dashboard(cached, refresh_seconds, from_cache=True))
         console.print()
 
     with Status("Fetching repository data...", console=console):
-        statuses = [fetch_repo_status(r) for r in repos]
+        statuses = _refresh(repos, cached)
     save_cache(statuses)
 
     with Live(console=console, refresh_per_second=1, screen=False) as live:
-        live.update(build_dashboard(statuses, refresh_seconds))
+        live.update(layout.build_dashboard(statuses, refresh_seconds))
         while True:
             time.sleep(refresh_seconds)
-            statuses = [fetch_repo_status(r) for r in repos]
-            save_cache(statuses)
-            live.update(build_dashboard(statuses, refresh_seconds))
+            try:
+                statuses = _refresh(repos, statuses)
+                save_cache(statuses)
+                live.update(layout.build_dashboard(statuses, refresh_seconds))
+                consecutive_errors = 0
+            except Exception:
+                consecutive_errors += 1
+                logger.debug(f"refresh error #{consecutive_errors}: {traceback.format_exc()}")
+                # Show error banner above last good frame
+                try:
+                    from rich.console import Group
+
+                    error_msg = Text.from_markup(
+                        f"[bold red]Refresh failed[/bold red] [dim](attempt"
+                        f" {consecutive_errors}, retrying in {refresh_seconds}s)[/dim]"
+                    )
+                    last_good = layout.build_dashboard(statuses, refresh_seconds)
+                    live.update(Group(error_msg, Text(), last_good))
+                except Exception:
+                    pass  # even the error render failed; keep whatever is on screen
