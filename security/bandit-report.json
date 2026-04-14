@@ -1,17 +1,17 @@
 {
   "errors": [],
-  "generated_at": "2026-04-14T22:13:56Z",
+  "generated_at": "2026-04-14T23:04:44Z",
   "metrics": {
     "_totals": {
-      "CONFIDENCE.HIGH": 5,
+      "CONFIDENCE.HIGH": 6,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 5,
+      "SEVERITY.LOW": 6,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 1153,
+      "loc": 1449,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -141,11 +141,24 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 125,
+      "loc": 140,
       "nosec": 0,
       "skipped_tests": 0
     },
     "src/gh_secrets_and_vars_async/tui_dashboard.py": {
+      "CONFIDENCE.HIGH": 1,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 1,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 174,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "src/gh_secrets_and_vars_async/tui_layouts/__init__.py": {
       "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
@@ -154,7 +167,46 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 179,
+      "loc": 42,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "src/gh_secrets_and_vars_async/tui_layouts/compact.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 70,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "src/gh_secrets_and_vars_async/tui_layouts/cyber.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 104,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "src/gh_secrets_and_vars_async/tui_layouts/default.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 70,
       "nosec": 0,
       "skipped_tests": 0
     }
@@ -269,6 +321,27 @@
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
       "test_id": "B603",
       "test_name": "subprocess_without_shell_equals_true"
+    },
+    {
+      "code": "224                     live.update(Group(error_msg, Text(), last_good))\n225                 except Exception:\n226                     pass  # even the error render failed; keep whatever is on screen\n",
+      "col_offset": 16,
+      "end_col_offset": 24,
+      "filename": "src/gh_secrets_and_vars_async/tui_dashboard.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 225,
+      "line_range": [
+        225,
+        226
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
     }
   ]
 }
