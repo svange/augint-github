@@ -56,6 +56,11 @@ class RepoHealth:
 
     status: RepoStatus
     checks: list[HealthCheckResult] = field(default_factory=list)
+    # ISO-8601 UTC timestamp of when this repo most recently transitioned from
+    # a green state into a warning (yellow) state. Set by the dashboard when it
+    # commits a new refresh, not by the health checks themselves. Used to drive
+    # the card-border flash in the TUI while still within a short window.
+    warning_since: str | None = None
 
     @property
     def worst_severity(self) -> Severity:
@@ -84,11 +89,15 @@ class RepoHealth:
         )
 
     def to_dict(self) -> dict:
-        return {"checks": [c.to_dict() for c in self.checks]}
+        return {
+            "checks": [c.to_dict() for c in self.checks],
+            "warning_since": self.warning_since,
+        }
 
     @classmethod
     def from_dict(cls, status: RepoStatus, data: dict) -> RepoHealth:
         return cls(
             status=status,
             checks=[HealthCheckResult.from_dict(c) for c in data.get("checks", [])],
+            warning_since=data.get("warning_since"),
         )

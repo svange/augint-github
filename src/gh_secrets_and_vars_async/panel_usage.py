@@ -116,6 +116,52 @@ def _read_claude_sessions(window_days: int = 7) -> _ClaudeSessionAggregate:
     return agg
 
 
+def _read_claude_history(window_days: int = 7) -> _ClaudeSessionAggregate:
+    """Parse ``~/.claude/history.jsonl`` for recent message activity.
+
+    Claude Code writes one line per user/assistant turn to history.jsonl with
+    an epoch-ms timestamp and ``sessionId``. It's the freshest local source
+    when session-meta is stale and stats-cache hasn't been recomputed (the
+    stats-cache job only runs on session exit). We count lines as "messages"
+    and unique ``sessionId`` values as "sessions".
+    """
+    agg = _ClaudeSessionAggregate(source="history")
+    hist_path = Path.home() / ".claude" / "history.jsonl"
+    if not hist_path.is_file():
+        return agg
+
+    cutoff_ms = int((datetime.now(UTC) - timedelta(days=window_days)).timestamp() * 1000)
+    session_ids: set[str] = set()
+    oldest_ms: int | None = None
+    count = 0
+    try:
+        with hist_path.open(encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                if not raw.strip():
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                ts = entry.get("timestamp")
+                if not isinstance(ts, int) or ts < cutoff_ms:
+                    continue
+                count += 1
+                sid = entry.get("sessionId")
+                if isinstance(sid, str):
+                    session_ids.add(sid)
+                if oldest_ms is None or ts < oldest_ms:
+                    oldest_ms = ts
+    except OSError:
+        return agg
+
+    agg.messages = count
+    agg.sessions = len(session_ids)
+    if oldest_ms is not None:
+        agg.oldest_in_window = datetime.fromtimestamp(oldest_ms / 1000, tz=UTC)
+    return agg
+
+
 def _read_claude_stats_cache(window_days: int = 7) -> _ClaudeSessionAggregate:
     """Fallback: aggregate ~/.claude/stats-cache.json dailyActivity for the window."""
     agg = _ClaudeSessionAggregate(source="stats-cache")
@@ -146,9 +192,7 @@ def _read_claude_stats_cache(window_days: int = 7) -> _ClaudeSessionAggregate:
             oldest_day = day
 
     if oldest_day is not None:
-        agg.oldest_in_window = datetime.combine(
-            oldest_day, datetime.min.time(), tzinfo=UTC
-        )
+        agg.oldest_in_window = datetime.combine(oldest_day, datetime.min.time(), tzinfo=UTC)
     return agg
 
 
@@ -173,6 +217,8 @@ def fetch_claude_code_usage(
     """Claude Code activity from local session-meta (or stats-cache fallback)."""
     try:
         agg = _read_claude_sessions(window_days)
+        if agg.messages == 0 and agg.sessions == 0:
+            agg = _read_claude_history(window_days)
         if agg.messages == 0 and agg.sessions == 0:
             agg = _read_claude_stats_cache(window_days)
         sub = _read_claude_subscription()
@@ -282,31 +328,72 @@ def _gh_has_copilot() -> bool:
     return False
 
 
+def _gh_copilot_billing() -> dict | None:
+    """Query ``gh api /user/copilot/billing`` for plan info. None on failure."""
+    if shutil.which("gh") is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["gh", "api", "/user/copilot/billing"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
 def fetch_copilot_usage(window_days: int = 7, limit: int | None = None) -> UsageStats:
-    """GitHub Copilot presence via gh CLI."""
+    """GitHub Copilot presence via gh CLI -- uses the existing ``gh auth`` token (SSO)."""
     if shutil.which("gh") is None:
         return UsageStats(
             provider="copilot",
             display_name="Copilot",
             window_days=window_days,
             status="unconfigured",
-            error="gh CLI not installed",
+            error="gh CLI not installed -- copilot auth rides on gh",
         )
-    if not _gh_has_copilot():
+    billing = _gh_copilot_billing()
+    if billing:
+        # User has a Copilot subscription reachable via gh auth.
+        plan = str(billing.get("copilot_plan") or billing.get("plan") or "subscribed")
+        last_activity = billing.get("last_activity_at") or billing.get("updated_at")
+        note: str | None = None
+        if last_activity:
+            note = f"last activity {str(last_activity)[:10]}"
         return UsageStats(
             provider="copilot",
             display_name="Copilot",
             window_days=window_days,
-            status="unconfigured",
-            error="no gh-copilot extension or subscription detected",
+            status="ok",
+            tier=plan,
+            note=note or "per-seat message usage not exposed by the GH API",
+        )
+    if _gh_has_copilot():
+        return UsageStats(
+            provider="copilot",
+            display_name="Copilot",
+            window_days=window_days,
+            status="unknown",
+            tier="subscribed",
+            note="per-seat usage not in public GH API",
         )
     return UsageStats(
         provider="copilot",
         display_name="Copilot",
         window_days=window_days,
-        status="unknown",
-        tier="subscribed",
-        note="per-seat usage not in public GH API",
+        status="unconfigured",
+        error="no Copilot subscription on gh-authed account",
     )
 
 
@@ -333,9 +420,52 @@ def _openai_usage_request(
     return payload
 
 
+def _resolve_openai_key() -> str | None:
+    """Resolve an OpenAI admin key from env, keyring, or common config paths.
+
+    OpenAI does not offer an SSO-based token flow for API clients, so the
+    best we can do is look in the places a user with proper secret hygiene
+    would store the key: the OS keyring (Windows Credential Manager / macOS
+    Keychain / libsecret) and common CLI config files.
+    """
+    key = os.environ.get("OPENAI_API_KEY")
+    if key:
+        return key
+    # Try OS keyring if the optional dependency is installed.
+    try:
+        import keyring  # type: ignore[import-not-found]
+
+        for service, user in (
+            ("openai", "api_key"),
+            ("openai", "OPENAI_API_KEY"),
+            ("OpenAI", "api_key"),
+        ):
+            try:
+                value = keyring.get_password(service, user)
+            except Exception:
+                value = None
+            if isinstance(value, str) and value:
+                return value
+    except ImportError:
+        pass
+    # Common CLI config locations.
+    for candidate in (
+        Path.home() / ".openai" / "api_key",
+        Path.home() / ".config" / "openai" / "api_key",
+    ):
+        try:
+            if candidate.is_file():
+                value = candidate.read_text(encoding="utf-8").strip()
+                if value:
+                    return value
+        except OSError:
+            continue
+    return None
+
+
 def fetch_openai_usage(window_days: int = 7, limit: int | None = None) -> UsageStats:
-    """OpenAI usage via OPENAI_API_KEY (admin key required for /organization/usage)."""
-    api_key = os.environ.get("OPENAI_API_KEY")
+    """OpenAI usage via admin key (env, keyring, or config file)."""
+    api_key = _resolve_openai_key()
     org_id = os.environ.get("OPENAI_ORG_ID") or os.environ.get("OPENAI_ORGANIZATION")
 
     if not api_key:
@@ -344,7 +474,7 @@ def fetch_openai_usage(window_days: int = 7, limit: int | None = None) -> UsageS
             display_name="OpenAI",
             window_days=window_days,
             status="unconfigured",
-            error="set OPENAI_API_KEY (admin key) to enable",
+            error="no key in env/keyring/~/.openai -- OpenAI has no SSO",
         )
 
     start_time = int((datetime.now(UTC) - timedelta(days=window_days)).timestamp())
@@ -412,3 +542,53 @@ def fetch_all_usage(
         fetch_openai_usage(limit=openai_limit),
         fetch_copilot_usage(limit=copilot_limit),
     ]
+
+
+def claude_daily_message_buckets(window_days: int = 7) -> list[int]:
+    """Return per-day Claude message counts for the trailing ``window_days``.
+
+    Oldest day first; length == ``window_days``. Reads ``history.jsonl`` (the
+    freshest source) with a fallback to ``stats-cache.json``. Used by the
+    dashboard's activity sparkline. Returns all-zeros when no data.
+    """
+    buckets = [0] * window_days
+    today = datetime.now(UTC).date()
+    hist_path = Path.home() / ".claude" / "history.jsonl"
+    if hist_path.is_file():
+        try:
+            with hist_path.open(encoding="utf-8", errors="replace") as fh:
+                for raw in fh:
+                    if not raw.strip():
+                        continue
+                    try:
+                        entry = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    ts = entry.get("timestamp")
+                    if not isinstance(ts, int):
+                        continue
+                    day = datetime.fromtimestamp(ts / 1000, tz=UTC).date()
+                    days_ago = (today - day).days
+                    if 0 <= days_ago < window_days:
+                        buckets[window_days - 1 - days_ago] += 1
+            if any(buckets):
+                return buckets
+        except OSError:
+            pass
+
+    # Fallback: stats-cache
+    cache_path = Path.home() / ".claude" / "stats-cache.json"
+    if cache_path.is_file():
+        try:
+            data = json.loads(cache_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return buckets
+        for entry in data.get("dailyActivity", []):
+            try:
+                day = date.fromisoformat(entry.get("date", ""))
+            except (ValueError, TypeError):
+                continue
+            days_ago = (today - day).days
+            if 0 <= days_ago < window_days:
+                buckets[window_days - 1 - days_ago] = int(entry.get("messageCount", 0) or 0)
+    return buckets

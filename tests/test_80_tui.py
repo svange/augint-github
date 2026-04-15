@@ -80,7 +80,7 @@ class TestGetRunStatus:
         runs.__getitem__ = MagicMock(return_value=run)
         repo.get_workflow_runs.return_value = runs
 
-        status, error = get_run_status(repo, "main")
+        status, error, _failing_since = get_run_status(repo, "main")
         assert status == "success"
         assert error is None
 
@@ -102,7 +102,7 @@ class TestGetRunStatus:
         runs.__getitem__ = MagicMock(return_value=run)
         repo.get_workflow_runs.return_value = runs
 
-        status, error = get_run_status(repo, "main")
+        status, error, _failing_since = get_run_status(repo, "main")
         assert status == "failure"
         assert error == "build: Run tests"
 
@@ -114,7 +114,7 @@ class TestGetRunStatus:
         runs.__getitem__ = MagicMock(return_value=run)
         repo.get_workflow_runs.return_value = runs
 
-        status, error = get_run_status(repo, "main")
+        status, error, _failing_since = get_run_status(repo, "main")
         assert status == "in_progress"
         assert error is None
 
@@ -126,7 +126,7 @@ class TestGetRunStatus:
         runs.__getitem__ = MagicMock(return_value=run)
         repo.get_workflow_runs.return_value = runs
 
-        status, error = get_run_status(repo, "main")
+        status, error, _failing_since = get_run_status(repo, "main")
         assert status == "in_progress"
 
     def test_no_runs(self):
@@ -135,7 +135,7 @@ class TestGetRunStatus:
         runs.totalCount = 0
         repo.get_workflow_runs.return_value = runs
 
-        status, error = get_run_status(repo, "main")
+        status, error, _failing_since = get_run_status(repo, "main")
         assert status == "unknown"
         assert error is None
 
@@ -145,7 +145,7 @@ class TestGetRunStatus:
         repo = _mock_repo()
         repo.get_workflow_runs.side_effect = GithubException(500, "error", None)
 
-        status, error = get_run_status(repo, "main")
+        status, error, _failing_since = get_run_status(repo, "main")
         assert status == "unknown"
         assert error is None
 
@@ -208,7 +208,7 @@ class TestFetchRepoStatus:
     @patch("gh_secrets_and_vars_async.tui_dashboard.has_dev_branch", return_value=False)
     @patch(
         "gh_secrets_and_vars_async.tui_dashboard.get_run_status",
-        return_value=("success", None),
+        return_value=("success", None, None),
     )
     def test_library_success(self, mock_run, mock_dev):
         repo = _mock_repo(open_issues_count=7)
@@ -229,7 +229,10 @@ class TestFetchRepoStatus:
     @patch("gh_secrets_and_vars_async.tui_dashboard.has_dev_branch", return_value=True)
     @patch(
         "gh_secrets_and_vars_async.tui_dashboard.get_run_status",
-        side_effect=[("success", None), ("failure", "build: Run tests")],
+        side_effect=[
+            ("success", None, None),
+            ("failure", "build: Run tests", "2026-04-15T10:00:00+00:00"),
+        ],
     )
     def test_service_mixed(self, mock_run, mock_dev):
         repo = _mock_repo(open_issues_count=10)
@@ -248,7 +251,7 @@ class TestFetchRepoStatus:
     @patch("gh_secrets_and_vars_async.tui_dashboard.has_dev_branch", return_value=False)
     @patch(
         "gh_secrets_and_vars_async.tui_dashboard.get_run_status",
-        return_value=("unknown", None),
+        return_value=("unknown", None, None),
     )
     def test_no_runs(self, mock_run, mock_dev):
         repo = _mock_repo(open_issues_count=0)

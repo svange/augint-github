@@ -15,6 +15,7 @@ def _register_subcommands() -> None:
     """Register subcommands that depend on other modules."""
     from .chezmoi_cmd import chezmoi_command
     from .config import config_command
+    from .dashboard.cmd import dashboard_command
     from .init_cmd import init_command
     from .panel_cmd import panel_command
     from .rulesets import rulesets_command
@@ -28,6 +29,7 @@ def _register_subcommands() -> None:
     main.add_command(init_command, "init")
     main.add_command(tui_command, "tui")
     main.add_command(panel_command, "panel")
+    main.add_command(dashboard_command, "dashboard")
 
 
 _register_subcommands()

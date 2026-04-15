@@ -791,9 +791,7 @@ def _build_usage_panel(
         if fraction is not None:
             body.append_text(_build_progress_bar(fraction, usage_style=True))
             pct = fraction * 100
-            pct_style = (
-                "bold red" if pct >= 90 else "yellow" if pct >= 70 else "green"
-            )
+            pct_style = "bold red" if pct >= 90 else "yellow" if pct >= 70 else "green"
             body.append(f" {pct:.0f}%", style=pct_style)
             body.append(f"\n        {stats.messages:,} / {stats.limit:,} msgs\n")
         else:

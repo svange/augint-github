@@ -87,6 +87,53 @@ Use `--env-auth` to force `GH_TOKEN` from `.env`.
 
 **Themes**: `default` (muted blues), `cyber` (neon green/cyan/magenta), `minimal` (monochrome).
 
+### `ai-gh dashboard` -- V2 Widget-Based Dashboard
+
+A widget-per-card redesign of `ai-gh panel`. Cards, layouts, and themes are pluggable; selection and refresh animate via CSS transitions; usage folds into the top bar with on-demand drawers for details and errors.
+
+```bash
+ai-gh dashboard --all                       # All repos; default theme, packed layout
+ai-gh dashboard --all --layout grouped      # Group by GitHub team
+ai-gh dashboard --all --layout dense        # Compact 2-line cards
+ai-gh dashboard --all --theme nord          # Alternate theme
+ai-gh dashboard --no-refresh -a             # Render from cache only (fast)
+```
+
+**Layouts**: `packed` (default), `grouped` (by team), `dense` (2-line), `list` (full-width rows).
+
+**Themes**: `default` (default), `paper`, `nord`, `minimal`, `cyber`, `matrix`, `synthwave`.
+
+**Extra keys** (on top of the `panel` bindings): `g` cycle layout, `d` toggle detail drawer, `u` toggle usage drawer, `i` toggle org-health drawer, `e` open error log, `+` / `-` or `ctrl+mousewheel` widen / narrow cards.
+
+**Mouse**:
+
+| Gesture | Action |
+|---|---|
+| Left click a card | select (shows inline `SEL` badge) + open drilldown |
+| Right click | back a level (close drawer, else pop top screen) |
+| Middle click a card | open the repo's Actions page |
+| Meta (Alt/Cmd) + click card | open Actions page |
+| Meta + click on the counts row | open the repo's Pulls page |
+| `ctrl` + mousewheel | widen / narrow cards |
+
+Selection is shown with an inline badge rather than a border change, so the selected card stays visually stable as severity borders animate. Team badges (auto-discovered via `repo.get_teams()`) render in the title row with a deterministic colour per team.
+
+Themes and layouts can be cycled live without restart -- the grid reconciles cards in place rather than unmounting and remounting, so there is no flicker when toggling (`t` / `g`) or during the 60s usage refresh.
+
+#### Dashboard development
+
+The dashboard lives in `src/gh_secrets_and_vars_async/dashboard/` with layouts and themes registered at import time. For UI iteration:
+
+```bash
+# CSS hot-reload + devtools console (Textual dev server)
+uv run textual run --dev gh_secrets_and_vars_async.dashboard.app:DashboardApp
+
+# Pure-cache run -- no GitHub API calls, instant startup
+uv run ai-gh dashboard --no-refresh -a
+```
+
+Editing any `.tcss` file under `dashboard/themes/` reloads styles live when run under `textual run --dev`. Adding a new layout or theme is a one-line registration -- see `dashboard/layouts/__init__.py` and `dashboard/themes/__init__.py`.
+
 ### `ai-gh tui` -- Live Status Dashboard
 
 A passive Rich Live display showing pipeline status, issues, and PRs across repos. Auto-refreshes without keyboard interaction.
