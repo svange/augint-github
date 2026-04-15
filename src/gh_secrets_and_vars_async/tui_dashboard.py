@@ -58,11 +58,47 @@ def load_cache() -> dict[str, RepoStatus]:
         return {}
 
 
-def save_cache(statuses: list[RepoStatus]) -> None:
-    """Persist repo statuses to disk."""
+def save_cache(
+    statuses: list[RepoStatus],
+    healths: list | None = None,
+) -> None:
+    """Persist repo statuses and optional health data to disk."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    data = {"repos": {s.full_name: asdict(s) for s in statuses}}
+    data: dict = {"repos": {s.full_name: asdict(s) for s in statuses}}
+    if healths:
+        data["health"] = {h.status.full_name: h.to_dict() for h in healths}
+        data["health_ts"] = datetime.now(UTC).isoformat()
+    elif CACHE_FILE.exists():
+        try:
+            existing = json.loads(CACHE_FILE.read_text())
+            if "health" in existing:
+                data["health"] = existing["health"]
+                data["health_ts"] = existing.get("health_ts")
+        except (json.JSONDecodeError, KeyError):
+            pass
     CACHE_FILE.write_text(json.dumps(data, indent=2))
+
+
+def load_health_cache(
+    statuses: dict[str, RepoStatus],
+) -> dict:
+    """Load cached health data. Returns dict of full_name -> RepoHealth."""
+    if not CACHE_FILE.exists():
+        return {}
+    try:
+        data = json.loads(CACHE_FILE.read_text())
+        health_data = data.get("health", {})
+        if not health_data:
+            return {}
+        from .health import RepoHealth
+
+        result = {}
+        for full_name, health_dict in health_data.items():
+            if full_name in statuses:
+                result[full_name] = RepoHealth.from_dict(statuses[full_name], health_dict)
+        return result
+    except (json.JSONDecodeError, TypeError, KeyError, ImportError):
+        return {}
 
 
 # ---------------------------------------------------------------------------

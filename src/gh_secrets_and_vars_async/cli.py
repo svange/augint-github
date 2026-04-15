@@ -16,6 +16,7 @@ def _register_subcommands() -> None:
     from .chezmoi_cmd import chezmoi_command
     from .config import config_command
     from .init_cmd import init_command
+    from .panel_cmd import panel_command
     from .rulesets import rulesets_command
     from .status import status_command
     from .tui_cmd import tui_command
@@ -26,6 +27,7 @@ def _register_subcommands() -> None:
     main.add_command(status_command, "status")
     main.add_command(init_command, "init")
     main.add_command(tui_command, "tui")
+    main.add_command(panel_command, "panel")
 
 
 _register_subcommands()

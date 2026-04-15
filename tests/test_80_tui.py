@@ -410,6 +410,7 @@ class TestTuiCLI:
         assert "--interactive" in result.output
         assert "--refresh-seconds" in result.output
         assert "--org" in result.output
+        assert "--env-auth" in result.output
 
     @patch("gh_secrets_and_vars_async.tui_cmd.run_dashboard", side_effect=KeyboardInterrupt)
     @patch("gh_secrets_and_vars_async.common.get_github_repo")
@@ -435,6 +436,19 @@ class TestTuiCLI:
         result = runner.invoke(main, ["tui", "--all"])
         assert result.exit_code == 0
         mock_list.assert_called_once()
+
+    @patch("gh_secrets_and_vars_async.tui_cmd.run_dashboard", side_effect=KeyboardInterrupt)
+    @patch("gh_secrets_and_vars_async.tui_cmd.list_repos")
+    @patch("gh_secrets_and_vars_async.tui_cmd.load_env_config")
+    @patch("gh_secrets_and_vars_async.tui_cmd.get_github_client")
+    def test_tui_env_auth_uses_dotenv_mode(self, mock_client, mock_env, mock_list, mock_dash):
+        mock_env.return_value = ("", "myaccount", "tok")
+        mock_list.return_value = [_mock_repo()]
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["tui", "--all", "--env-auth"])
+        assert result.exit_code == 0
+        mock_client.assert_called_once_with(auth_source="dotenv")
 
     def test_tui_missing_env(self):
         runner = CliRunner()

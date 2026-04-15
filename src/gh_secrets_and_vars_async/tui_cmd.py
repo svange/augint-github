@@ -21,13 +21,29 @@ def list_repos(g: Github, owner: str) -> list[Repository]:
     can see), then falls back to the authenticated user's own repos.
     """
     try:
+        viewer = g.get_user().login
+    except GithubException:
+        viewer = "<unknown>"
+    logger.debug(f"Listing repos for '{owner}' as '{viewer}'.")
+
+    try:
         repos = list(g.get_organization(owner).get_repos(type="all"))
+        logger.debug(f"Resolved '{owner}' as an organization.")
     except (UnknownObjectException, GithubException):
         # Not an org -- treat as a user.  If owner matches the
         # authenticated user, get_user().get_repos() returns private
         # repos; otherwise only public repos are visible.
+        logger.debug(f"Organization lookup failed for '{owner}'. Falling back to user repos.")
         repos = list(g.get_user(owner).get_repos())
-    return [r for r in repos if not r.archived]
+
+    visible_repos = [r for r in repos if not r.archived]
+    private_count = sum(1 for repo in visible_repos if getattr(repo, "private", False) is True)
+    public_count = len(visible_repos) - private_count
+    logger.debug(
+        f"Found {len(visible_repos)} non-archived repos for '{owner}' "
+        f"({private_count} private, {public_count} public)."
+    )
+    return visible_repos
 
 
 def select_org_interactive(g: Github) -> str:
@@ -105,19 +121,29 @@ def _warn_rate_limit(repo_count: int, refresh_seconds: int) -> None:
     help="Refresh interval in seconds.",
 )
 @click.option("--org", type=str, default=None, help="Specify organization directly.")
+@click.option(
+    "--env-auth",
+    "--dotenv-auth",
+    is_flag=True,
+    help="Use GH_TOKEN from .env instead of gh auth token/keyring.",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show additional detail.")
 def tui_command(
     show_all: bool,
     interactive: bool,
     refresh_seconds: int,
     org: str | None,
+    env_auth: bool,
     verbose: bool,
 ) -> None:
     """Live dashboard showing pipeline status, issues, and PRs."""
     configure_logging(verbose)
 
     _, gh_account, _ = load_env_config()
-    g = get_github_client()
+    auth_source = "dotenv" if env_auth else "auto"
+    if env_auth:
+        logger.debug("TUI auth mode forced to .env (--env-auth).")
+    g = get_github_client(auth_source=auth_source)
 
     repos: list[Repository]
 
@@ -143,7 +169,7 @@ def tui_command(
             )
         from .common import get_github_repo
 
-        repos = [get_github_repo(gh_account_env, gh_repo)]
+        repos = [get_github_repo(gh_account_env, gh_repo, auth_source=auth_source)]
 
     _warn_rate_limit(len(repos), refresh_seconds)
 
