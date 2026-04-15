@@ -208,7 +208,7 @@ def _team_tint(team_key: str, theme_spec: DashboardThemeSpec) -> TeamTint:
     if team_key == _UNASSIGNED_TEAM:
         return TeamTint(accent=theme_spec.dim_text, background=theme_spec.card_background)
 
-    digest = hashlib.sha1(team_key.encode("utf-8")).digest()
+    digest = hashlib.sha1(team_key.encode("utf-8"), usedforsecurity=False).digest()
     accent = _TEAM_ACCENTS[int.from_bytes(digest[:2], "big") % len(_TEAM_ACCENTS)]
     return TeamTint(accent=accent, background=theme_spec.card_background)
 

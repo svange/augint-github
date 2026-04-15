@@ -415,7 +415,7 @@ def _openai_usage_request(
     req.add_header("Authorization", f"Bearer {api_key}")
     if org_id:
         req.add_header("OpenAI-Organization", org_id)
-    with urllib.request.urlopen(req, timeout=8) as resp:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=8) as resp:  # noqa: S310  # nosec B310 - fixed https URL
         payload: dict = json.loads(resp.read().decode("utf-8"))
     return payload
 

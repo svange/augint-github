@@ -139,7 +139,7 @@ def team_accent(team_key: str, known_teams: Iterable[str] | None = None) -> str:
         if team_key in keys:
             idx = keys.index(team_key)
             return _hsl_hex(idx * _GOLDEN_ANGLE)
-    digest = hashlib.sha1(team_key.encode("utf-8")).digest()
+    digest = hashlib.sha1(team_key.encode("utf-8"), usedforsecurity=False).digest()
     idx = int.from_bytes(digest[:2], "big")
     return _hsl_hex(idx * _GOLDEN_ANGLE)
 
