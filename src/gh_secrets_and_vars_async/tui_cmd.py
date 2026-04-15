@@ -127,6 +127,15 @@ def _warn_rate_limit(repo_count: int, refresh_seconds: int) -> None:
     is_flag=True,
     help="Use GH_TOKEN from .env instead of gh auth token/keyring.",
 )
+@click.option(
+    "--layout",
+    "-l",
+    "layout_name",
+    type=str,
+    default="default",
+    show_default=True,
+    help="Dashboard layout (default, compact, cyber).",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show additional detail.")
 def tui_command(
     show_all: bool,
@@ -134,10 +143,18 @@ def tui_command(
     refresh_seconds: int,
     org: str | None,
     env_auth: bool,
+    layout_name: str,
     verbose: bool,
 ) -> None:
     """Live dashboard showing pipeline status, issues, and PRs."""
     configure_logging(verbose)
+
+    from .tui_layouts import available_layouts
+
+    if layout_name not in available_layouts():
+        raise click.ClickException(
+            f"Unknown layout '{layout_name}'. Available: {', '.join(available_layouts())}"
+        )
 
     _, gh_account, _ = load_env_config()
     auth_source = "dotenv" if env_auth else "auto"
@@ -174,6 +191,6 @@ def tui_command(
     _warn_rate_limit(len(repos), refresh_seconds)
 
     try:
-        run_dashboard(repos, refresh_seconds)
+        run_dashboard(repos, refresh_seconds, layout_name=layout_name)
     except KeyboardInterrupt:
         print("\n[dim]Dashboard stopped.[/dim]")

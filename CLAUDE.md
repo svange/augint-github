@@ -23,7 +23,7 @@ uv run pre-commit run --all-files            # Run all pre-commit hooks
 
 - **Commits**: Conventional commits required. `fix:` = patch, `feat:` = minor, `feat!:` / `BREAKING CHANGE` = major.
 - **Branches**: `{type}/issue-N-description` where type is one of: feat, fix, docs, refactor, test, chore, ci, build, style, revert, perf.
-- **PRs**: Libraries target `main`; services target their development branch, then promote via merge commit. Enable automerge. Do not squash when repo policy requires merge commits.
+- **PRs**: Libraries (this repo) target `main` directly — squash merges are fine (`gh pr merge --auto --squash`). Service/IaC repos target a development branch and promote via **merge commit** (not squash) to preserve dev→main ancestry. Always enable automerge.
 - **Pre-commit**: Run `uv run pre-commit run --all-files` explicitly before committing (no automatic git hooks -- they break across Windows/WSL). If checks fail, fix the issue and create a NEW commit (do not amend).
 - **Tests**: Write tests for all new functionality. Bug fixes require regression tests.
 
@@ -56,7 +56,8 @@ git log --oneline -10         # Recent commits
 # GitHub CLI
 gh issue list --state open    # View open issues
 gh pr create                  # Create pull request
-gh pr merge --auto --merge   # Enable automerge
+gh pr merge --auto --squash  # Enable automerge (library -- this repo)
+gh pr merge --auto --merge   # Enable automerge (service/IaC -- preserve dev->main)
 gh run list                   # List workflow runs
 gh run view <id>              # View run details
 gh run watch <id>             # Watch run in real-time
