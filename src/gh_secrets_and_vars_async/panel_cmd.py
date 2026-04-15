@@ -41,6 +41,11 @@ from .tui_cmd import _warn_rate_limit, list_repos, select_org_interactive, selec
     is_flag=True,
     help="Use GH_TOKEN from .env instead of gh auth token/keyring.",
 )
+@click.option(
+    "--no-refresh",
+    is_flag=True,
+    help="Render from the on-disk cache without hitting the GitHub API (fast startup for testing).",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show additional detail.")
 def panel_command(
     show_all: bool,
@@ -50,6 +55,7 @@ def panel_command(
     theme: str,
     stale_days: int,
     env_auth: bool,
+    no_refresh: bool,
     verbose: bool,
 ) -> None:
     """Interactive health dashboard for GitHub repositories."""
@@ -112,6 +118,7 @@ def panel_command(
             theme=theme,
             health_config=health_config,
             org_name=org_name,
+            skip_refresh=no_refresh,
         )
     except KeyboardInterrupt:
         print("\n[dim]Panel stopped.[/dim]")

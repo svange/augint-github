@@ -13,6 +13,7 @@ from gh_secrets_and_vars_async.health import RepoHealth, Severity
 from gh_secrets_and_vars_async.health._models import HealthCheckResult
 from gh_secrets_and_vars_async.panel_app import (
     FILTER_MODES,
+    LAYOUT_MODES,
     SORT_MODES,
     DashboardApp,
     DrillDownScreen,
@@ -23,9 +24,12 @@ from gh_secrets_and_vars_async.panel_app import (
     _apply_filter,
     _apply_sort,
     _build_repo_card_regions,
+    _build_usage_panel,
+    _build_usage_progress_bar,
     _repo_at_position,
 )
 from gh_secrets_and_vars_async.panel_themes import get_theme_spec
+from gh_secrets_and_vars_async.panel_usage import UsageStats, fetch_claude_code_usage
 from gh_secrets_and_vars_async.tui_dashboard import RepoStatus
 
 # ---------------------------------------------------------------------------
@@ -303,6 +307,10 @@ class TestDashboardAppBasic:
         assert "stale-prs" in FILTER_MODES
         assert "issues" in FILTER_MODES
 
+    def test_layout_modes_list(self):
+        assert "grouped" in LAYOUT_MODES
+        assert "packed" in LAYOUT_MODES
+
 
 # ---------------------------------------------------------------------------
 # Theme definitions
@@ -423,7 +431,7 @@ def _mouse_down_event(widget, x: int, y: int, button: int) -> events.MouseDown:
 
 
 class TestTextualApp:
-    def test_repo_card_regions_track_wrapped_cards(self):
+    def test_grouped_card_regions_keep_team_sections(self):
         healths = _sample_healths()
         regions = _build_repo_card_regions(
             healths,
@@ -433,6 +441,7 @@ class TestTextualApp:
             _team_labels(),
             "all",
             available_width=90,
+            layout_mode="grouped",
         )
 
         broken = next(region for region in regions if region.full_name == "org/broken-repo")
@@ -445,6 +454,28 @@ class TestTextualApp:
         assert _repo_at_position(regions, mid.x + 1, mid.y + 1) == "org/mid-repo"
         assert _repo_at_position(regions, healthy.x + 1, healthy.y + 1) == "org/healthy-repo"
         assert _repo_at_position(regions, broken.x + broken.width, broken.y + 1) is None
+
+    def test_packed_card_regions_fill_the_grid(self):
+        healths = _sample_healths()
+        regions = _build_repo_card_regions(
+            healths,
+            "org/broken-repo",
+            get_theme_spec("default"),
+            _team_map(),
+            _team_labels(),
+            "all",
+            available_width=90,
+            layout_mode="packed",
+        )
+
+        broken = next(region for region in regions if region.full_name == "org/broken-repo")
+        healthy = next(region for region in regions if region.full_name == "org/healthy-repo")
+        mid = next(region for region in regions if region.full_name == "org/mid-repo")
+
+        assert healthy.y == broken.y
+        assert healthy.x > broken.x
+        assert mid.y > broken.y
+        assert _repo_at_position(regions, healthy.x + 1, healthy.y + 1) == "org/healthy-repo"
 
     def test_app_mount_and_main_screen(self):
         app = _build_app(_sample_healths())
@@ -540,6 +571,19 @@ class TestTextualApp:
 
         asyncio.run(run())
 
+    def test_layout_cycle(self):
+        app = _build_app(_sample_healths())
+
+        async def run():
+            async with app.run_test() as pilot:
+                assert app.layout_mode == "packed"
+                await pilot.press("g")
+                assert app.layout_mode == "grouped"
+                await pilot.press("g")
+                assert app.layout_mode == "packed"
+
+        asyncio.run(run())
+
     def test_available_team_filters(self):
         app = _build_app(_sample_healths())
         app._repo_teams = _team_map()
@@ -583,6 +627,30 @@ class TestTextualApp:
                 await pilot.pause()
                 assert isinstance(app.screen, DrillDownScreen)
                 assert app.screen.health.status.full_name == "org/mid-repo"
+
+        asyncio.run(run())
+
+    def test_left_click_opens_detail_in_packed_layout(self):
+        app = _build_app(_sample_healths())
+        app._repo_teams = _team_map()
+        app._team_labels.update(_team_labels())
+        app.layout_mode = "packed"
+
+        async def run():
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                assert isinstance(screen, MainScreen)
+                grid = screen.query_one(RepoGrid)
+                target = next(
+                    region
+                    for region in grid._card_regions
+                    if region.full_name == "org/healthy-repo"
+                )
+                grid.on_click(_click_event(grid, target.x + 1, target.y + 1, button=1))
+                await pilot.pause()
+                assert isinstance(app.screen, DrillDownScreen)
+                assert app.screen.health.status.full_name == "org/healthy-repo"
 
         asyncio.run(run())
 
@@ -690,3 +758,152 @@ class TestTextualApp:
                 await pilot.press("q")
 
         asyncio.run(run())
+
+    def test_usage_panel_rendered_in_sidebar(self):
+        healths = _sample_healths()
+        app = _build_app(healths)
+        app._usage_stats = [
+            UsageStats(
+                provider="claude_code",
+                display_name="Claude Code",
+                messages=100,
+                sessions=5,
+                tool_calls=50,
+            ),
+        ]
+
+        async def run():
+            async with app.run_test():
+                screen = app.screen
+                assert isinstance(screen, MainScreen)
+                screen.update_table(healths, "health", "all")
+                usage_widget = screen.query_one("#sidebar-usage")
+                assert usage_widget is not None
+
+        asyncio.run(run())
+
+    def test_panel_width_changes_on_reactive_set(self):
+        app = _build_app(_sample_healths())
+
+        async def run():
+            async with app.run_test():
+                assert app.panel_width == 38
+                app.panel_width = 44
+                assert app.panel_width == 44
+
+        asyncio.run(run())
+
+    def test_countdown_state_after_trigger_refresh(self):
+        app = _build_app(_sample_healths())
+
+        async def run():
+            async with app.run_test():
+                app._trigger_refresh()
+                assert app._is_refreshing is True
+                assert app._next_refresh_at is not None
+
+        asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Usage provider tests
+# ---------------------------------------------------------------------------
+
+
+class TestUsageProviders:
+    def test_usage_stats_fraction_with_limit(self):
+        stats = UsageStats(
+            provider="test",
+            display_name="Test",
+            messages=700,
+            limit=1000,
+        )
+        assert stats.usage_fraction is not None
+        assert abs(stats.usage_fraction - 0.7) < 0.01
+
+    def test_usage_stats_fraction_no_limit(self):
+        stats = UsageStats(provider="test", display_name="Test", messages=100)
+        assert stats.usage_fraction is None
+
+    def test_usage_stats_fraction_zero_limit(self):
+        stats = UsageStats(provider="test", display_name="Test", messages=100, limit=0)
+        assert stats.usage_fraction is None
+
+    def test_usage_stats_fraction_capped_at_1(self):
+        stats = UsageStats(provider="test", display_name="Test", messages=2000, limit=1000)
+        assert stats.usage_fraction == 1.0
+
+    def test_fetch_claude_code_usage_missing_dir(self):
+        result = fetch_claude_code_usage(window_days=7, limit=None)
+        # Should not crash even if directory doesn't exist on test runner
+        assert result.provider == "claude_code"
+        assert result.display_name == "Claude Code"
+
+    def test_progress_bar_green(self):
+        bar = _build_usage_progress_bar(0.3)
+        plain = bar.plain
+        assert "[" in plain
+        assert "]" in plain
+        assert "30%" in plain
+
+    def test_progress_bar_yellow(self):
+        bar = _build_usage_progress_bar(0.75)
+        assert "75%" in bar.plain
+
+    def test_progress_bar_red(self):
+        bar = _build_usage_progress_bar(0.95)
+        assert "95%" in bar.plain
+
+    def test_build_usage_panel_with_stats(self):
+        stats = [
+            UsageStats(
+                provider="claude_code",
+                display_name="Claude Code",
+                messages=500,
+                sessions=10,
+                tool_calls=200,
+                limit=1000,
+                status="ok",
+            ),
+            UsageStats(
+                provider="openai",
+                display_name="OpenAI",
+                status="unconfigured",
+                error="OPENAI_API_KEY not set",
+            ),
+        ]
+        theme = get_theme_spec("default")
+        panel = _build_usage_panel(stats, theme)
+        assert panel is not None
+        assert panel.title is not None
+
+    def test_build_usage_panel_empty_stats(self):
+        theme = get_theme_spec("default")
+        panel = _build_usage_panel([], theme)
+        assert panel is not None
+
+    def test_card_regions_with_custom_panel_width(self):
+        healths = _sample_healths()
+        regions_narrow = _build_repo_card_regions(
+            healths,
+            "org/broken-repo",
+            get_theme_spec("default"),
+            _team_map(),
+            _team_labels(),
+            "all",
+            available_width=120,
+            panel_width=30,
+        )
+        regions_wide = _build_repo_card_regions(
+            healths,
+            "org/broken-repo",
+            get_theme_spec("default"),
+            _team_map(),
+            _team_labels(),
+            "all",
+            available_width=120,
+            panel_width=50,
+        )
+        # Narrower panels should fit more per row, so x positions differ
+        assert all(r.width == 30 for r in regions_narrow)
+        assert all(r.width == 50 for r in regions_wide)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import webbrowser
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -25,7 +25,14 @@ from textual.widgets import Footer, Header, Static
 
 from .health import FetchContext, RepoHealth, Severity, run_health_checks
 from .panel_themes import THEME_NAMES, THEMES, DashboardThemeSpec, get_theme_spec
-from .tui_dashboard import RepoStatus, fetch_repo_status, load_cache, save_cache
+from .panel_usage import UsageStats, fetch_all_usage
+from .tui_dashboard import (
+    RepoStatus,
+    fetch_repo_status,
+    load_cache,
+    load_health_cache,
+    save_cache,
+)
 
 if TYPE_CHECKING:
     from github.Repository import Repository
@@ -45,6 +52,9 @@ _SEVERITY_ICON = {
 }
 
 _PANEL_WIDTH = 38
+_PANEL_MIN_WIDTH = 24
+_PANEL_MAX_WIDTH = 60
+_PANEL_WIDTH_STEP = 2
 _PANEL_GAP = 1
 _PANEL_ROW_GAP = 1
 _GRID_PADDING = (_PANEL_ROW_GAP, _PANEL_GAP)
@@ -73,6 +83,7 @@ _MOUSE_BUTTON_RIGHT = 3
 
 SORT_MODES = ["health", "alpha", "problem"]
 FILTER_MODES = ["all", "broken-ci", "no-renovate", "stale-prs", "issues"]
+LAYOUT_MODES = ["packed", "grouped"]
 
 
 @dataclass(frozen=True)
@@ -199,11 +210,7 @@ def _team_tint(team_key: str, theme_spec: DashboardThemeSpec) -> TeamTint:
 
     digest = hashlib.sha1(team_key.encode("utf-8")).digest()
     accent = _TEAM_ACCENTS[int.from_bytes(digest[:2], "big") % len(_TEAM_ACCENTS)]
-    ratio = 0.18 if theme_spec.theme.name == "matrix" else 0.1
-    return TeamTint(
-        accent=accent,
-        background=_blend_hex(theme_spec.card_background, accent, ratio),
-    )
+    return TeamTint(accent=accent, background=theme_spec.card_background)
 
 
 def _team_badge(label: str, tint: TeamTint, *, extra_count: int = 0) -> Text:
@@ -212,8 +219,7 @@ def _team_badge(label: str, tint: TeamTint, *, extra_count: int = 0) -> Text:
         short_label = short_label[:9] + "..."
     if extra_count > 0:
         short_label += f"+{extra_count}"
-    badge_background = _blend_hex(tint.background, tint.accent, 0.35)
-    return Text(f" {short_label} ", style=f"bold #f7f7fb on {badge_background}")
+    return Text(f" {short_label} ", style=f"bold #101010 on {tint.accent}")
 
 
 def _team_summary_label(info: RepoTeamInfo, team_labels: dict[str, str]) -> tuple[str, int]:
@@ -246,16 +252,24 @@ def _grouped_healths(
     return list(grouped.items())
 
 
-def _flatten_grouped_healths(
+def _layout_sections(
     healths: list[RepoHealth],
     repo_teams: dict[str, RepoTeamInfo],
     filter_mode: str,
-) -> list[RepoHealth]:
+    layout_mode: str,
+) -> list[tuple[str | None, list[RepoHealth]]]:
+    if layout_mode == "packed":
+        return [(None, healths)]
     return [
-        health
-        for _, team_healths in _grouped_healths(healths, repo_teams, filter_mode)
-        for health in team_healths
+        (team_key, team_healths)
+        for team_key, team_healths in _grouped_healths(healths, repo_teams, filter_mode)
     ]
+
+
+def _flatten_sections(
+    sections: list[tuple[str | None, list[RepoHealth]]],
+) -> list[RepoHealth]:
+    return [health for _, team_healths in sections for health in team_healths]
 
 
 def _available_filter_modes(
@@ -276,10 +290,11 @@ def _visible_healths_for(
     sort_mode: str,
     filter_mode: str,
     repo_teams: dict[str, RepoTeamInfo],
+    layout_mode: str = LAYOUT_MODES[0],
 ) -> list[RepoHealth]:
     filtered = _apply_filter(healths, filter_mode, repo_teams)
     sorted_healths = _apply_sort(filtered, sort_mode)
-    return _flatten_grouped_healths(sorted_healths, repo_teams, filter_mode)
+    return _flatten_sections(_layout_sections(sorted_healths, repo_teams, filter_mode, layout_mode))
 
 
 def _build_ci_line(status: RepoStatus) -> Text:
@@ -368,8 +383,6 @@ def _panel_border_style(
     selected: bool,
 ) -> str:
     status = health.status
-    if selected:
-        return theme_spec.card_selected
     if status.main_status == "failure" or status.dev_status == "failure":
         return theme_spec.card_error
     if health.worst_severity == Severity.CRITICAL:
@@ -386,6 +399,7 @@ def _build_repo_panel(
     team_labels: dict[str, str],
     *,
     selected: bool,
+    panel_width: int = _PANEL_WIDTH,
 ) -> Panel:
     status = health.status
     team_info = _repo_team_info(status.full_name, repo_teams)
@@ -394,12 +408,13 @@ def _build_repo_panel(
 
     title = Text()
     if selected:
-        title.append("> ", style=theme_spec.card_selected)
+        title.append(" FOCUS ", style=f"bold #101010 on {theme_spec.card_selected}")
+        title.append(" ")
     title.append(status.name, style=f"bold {theme_spec.card_text}")
     if status.is_service:
         title.append("  svc", style=theme_spec.dim_text)
-    title.append("  ")
-    title.append_text(_team_badge(team_label, team_tint, extra_count=extra_teams))
+
+    subtitle = _team_badge(team_label, team_tint, extra_count=extra_teams)
 
     summary = Text()
     summary.append("health ", style="bold")
@@ -423,11 +438,13 @@ def _build_repo_panel(
     return Panel(
         Group(*body_lines),
         title=title,
-        box=box.DOUBLE if selected else box.ROUNDED,
+        subtitle=subtitle,
+        subtitle_align="right",
+        box=box.ROUNDED,
         border_style=_panel_border_style(health, theme_spec, selected=selected),
-        width=_PANEL_WIDTH,
+        width=panel_width,
         padding=(0, 1),
-        style=f"{theme_spec.card_text} on {team_tint.background}",
+        style=f"{theme_spec.card_text} on {theme_spec.card_background}",
     )
 
 
@@ -438,6 +455,8 @@ def _build_repo_grid(
     repo_teams: dict[str, RepoTeamInfo],
     team_labels: dict[str, str],
     filter_mode: str,
+    layout_mode: str = LAYOUT_MODES[0],
+    panel_width: int = _PANEL_WIDTH,
 ) -> Panel | Columns | Group:
     if not healths:
         return Panel(
@@ -449,12 +468,14 @@ def _build_repo_grid(
         )
 
     sections: list = []
-    for team_key, team_healths in _grouped_healths(healths, repo_teams, filter_mode):
-        tint = _team_tint(team_key, theme_spec)
-        header = Text()
-        header.append_text(_team_badge(_display_team_label(team_key, team_labels), tint))
-        header.append(f"  {len(team_healths)} repos", style=theme_spec.dim_text)
-        sections.append(header)
+    grouped_sections = _layout_sections(healths, repo_teams, filter_mode, layout_mode)
+    for index, (team_key, team_healths) in enumerate(grouped_sections):
+        if team_key is not None:
+            tint = _team_tint(team_key, theme_spec)
+            header = Text()
+            header.append_text(_team_badge(_display_team_label(team_key, team_labels), tint))
+            header.append(f"  {len(team_healths)} repos", style=theme_spec.dim_text)
+            sections.append(header)
         sections.append(
             Columns(
                 [
@@ -464,6 +485,7 @@ def _build_repo_grid(
                         repo_teams,
                         team_labels,
                         selected=health.status.full_name == selected_repo,
+                        panel_width=panel_width,
                     )
                     for health in team_healths
                 ],
@@ -471,13 +493,14 @@ def _build_repo_grid(
                 expand=False,
             )
         )
-        sections.append(Text())
-    return Group(*sections[:-1])
+        if team_key is not None and index < len(grouped_sections) - 1:
+            sections.append(Text())
+    return Group(*sections)
 
 
-def _panel_height(panel: Panel) -> int:
-    console = Console(width=_PANEL_WIDTH)
-    options = console.options.update(width=_PANEL_WIDTH)
+def _panel_height(panel: Panel, panel_width: int = _PANEL_WIDTH) -> int:
+    console = Console(width=panel_width)
+    options = console.options.update(width=panel_width)
     return len(console.render_lines(panel, options))
 
 
@@ -489,17 +512,20 @@ def _build_repo_card_regions(
     team_labels: dict[str, str],
     filter_mode: str,
     available_width: int,
+    layout_mode: str = LAYOUT_MODES[0],
+    panel_width: int = _PANEL_WIDTH,
 ) -> list[RepoCardRegion]:
     if not healths:
         return []
 
-    column_count = max(1, available_width // (_PANEL_WIDTH + _PANEL_GAP))
-    grouped = _grouped_healths(healths, repo_teams, filter_mode)
+    column_count = max(1, available_width // (panel_width + _PANEL_GAP))
+    grouped = _layout_sections(healths, repo_teams, filter_mode, layout_mode)
     regions: list[RepoCardRegion] = []
     y = 0
 
-    for group_index, (_, team_healths) in enumerate(grouped):
-        y += 1
+    for group_index, (team_key, team_healths) in enumerate(grouped):
+        if team_key is not None:
+            y += 1
         for row_start in range(0, len(team_healths), column_count):
             row_healths = team_healths[row_start : row_start + column_count]
             row_cards = [
@@ -509,10 +535,11 @@ def _build_repo_card_regions(
                     repo_teams,
                     team_labels,
                     selected=health.status.full_name == selected_repo,
+                    panel_width=panel_width,
                 )
                 for health in row_healths
             ]
-            row_heights = [_panel_height(panel) for panel in row_cards]
+            row_heights = [_panel_height(p, panel_width) for p in row_cards]
             row_height = max(row_heights, default=0)
             for column_index, (health, height) in enumerate(
                 zip(row_healths, row_heights, strict=True)
@@ -520,16 +547,16 @@ def _build_repo_card_regions(
                 regions.append(
                     RepoCardRegion(
                         full_name=health.status.full_name,
-                        x=column_index * (_PANEL_WIDTH + _PANEL_GAP),
+                        x=column_index * (panel_width + _PANEL_GAP),
                         y=y,
-                        width=_PANEL_WIDTH,
+                        width=panel_width,
                         height=height,
                     )
                 )
             y += row_height
             if row_start + column_count < len(team_healths):
                 y += _PANEL_ROW_GAP
-        if group_index < len(grouped) - 1:
+        if team_key is not None and group_index < len(grouped) - 1:
             y += 1
 
     return regions
@@ -607,6 +634,7 @@ def _build_controls_panel(
     theme_spec: DashboardThemeSpec,
     team_labels: dict[str, str],
     *,
+    layout_mode: str,
     sort_mode: str,
     filter_mode: str,
     theme_name: str,
@@ -620,6 +648,9 @@ def _build_controls_panel(
         body.append(f"{filter_label}\n", style=theme_spec.dim_text)
     else:
         body.append(f"{filter_label}\n", style="yellow")
+    body.append("layout ", style="bold")
+    layout_style = theme_spec.card_selected if layout_mode == "packed" else theme_spec.dim_text
+    body.append(f"{layout_mode}\n", style=layout_style)
     body.append("theme  ", style="bold")
     body.append(f"{theme_name}\n", style=theme_spec.card_selected)
     body.append("\n")
@@ -632,7 +663,7 @@ def _build_controls_panel(
     body.append("mid    actions tab\n", style="bold")
     body.append("right  esc on overlays\n", style=theme_spec.dim_text)
     body.append("o      open repo\n", style="bold")
-    body.append("s f t r cycle and refresh", style=theme_spec.dim_text)
+    body.append("s f g t r cycle and refresh", style=theme_spec.dim_text)
 
     return Panel(
         body,
@@ -644,30 +675,160 @@ def _build_controls_panel(
     )
 
 
-def _build_legend_panel(theme_spec: DashboardThemeSpec) -> Panel:
+def _build_progress_bar(
+    fraction: float,
+    width: int = 16,
+    *,
+    usage_style: bool = True,
+) -> Text:
+    """Build a text-based progress bar.
+
+    usage_style=True colors by severity (green/yellow/red). For time bars,
+    usage_style=False colors cyan throughout (time elapsing is not a warning).
+    """
+    fraction = max(0.0, min(1.0, fraction))
+    filled = round(fraction * width)
+    empty = width - filled
+    if usage_style:
+        if fraction >= 0.9:
+            bar_style = "bold red"
+        elif fraction >= 0.7:
+            bar_style = "yellow"
+        else:
+            bar_style = "green"
+    else:
+        bar_style = "cyan"
+    bar = Text("[", style="dim")
+    bar.append("#" * filled, style=bar_style)
+    bar.append("-" * empty, style="dim")
+    bar.append("]", style="dim")
+    return bar
+
+
+def _format_token_count(count: int) -> str:
+    """Format large token counts for display."""
+    if count >= 1_000_000:
+        return f"{count / 1_000_000:.1f}M"
+    if count >= 1_000:
+        return f"{count / 1_000:.1f}k"
+    return str(count)
+
+
+def _format_time_remaining(seconds: int) -> str:
+    """Format seconds as '3d 14h' or '6h 23m' or '12m 5s'."""
+    if seconds <= 0:
+        return "0s"
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    if days > 0:
+        return f"{days}d {hours}h"
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    if minutes > 0:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
+# Keep backward-compat alias for existing tests/imports.
+def _build_usage_progress_bar(fraction: float, width: int = 16) -> Text:
+    bar = _build_progress_bar(fraction, width, usage_style=True)
+    if fraction >= 0.9:
+        pct_style = "bold red"
+    elif fraction >= 0.7:
+        pct_style = "yellow"
+    else:
+        pct_style = "green"
+    bar.append(f" {fraction * 100:.0f}%", style=pct_style)
+    return bar
+
+
+def _build_usage_panel(
+    usage_stats: list[UsageStats],
+    theme_spec: DashboardThemeSpec,
+) -> Panel:
+    """Build the API usage dashboard panel for the sidebar."""
     body = Text()
-    body.append_text(_status_badge("failure"))
-    body.append(" broken pipeline\n")
-    body.append_text(_status_badge("in_progress"))
-    body.append(" workflow running\n")
-    body.append_text(_status_badge("success"))
-    body.append(" healthy pipeline\n")
-    body.append("\n")
-    body.append("■ ", style=theme_spec.card_selected)
-    body.append("selected card border\n")
-    body.append("■ ", style=theme_spec.card_error)
-    body.append("repo with failing CI / critical finding\n")
-    body.append("■ ", style=theme_spec.card_warning)
-    body.append("open PRs or warning-level health\n")
-    body.append("■ ", style=theme_spec.card_success)
-    body.append("healthy repo\n")
-    body.append("\n")
-    body.append("team tint ", style="bold")
-    body.append("card background shows the primary team", style=theme_spec.dim_text)
+
+    for i, stats in enumerate(usage_stats):
+        if i > 0:
+            body.append("\n")
+
+        status_icon = {
+            "ok": Text("*", style="green"),
+            "warning": Text("*", style="yellow"),
+            "critical": Text("*", style="bold red"),
+            "empty": Text("-", style="dim"),
+            "unknown": Text("?", style="dim"),
+            "unconfigured": Text("-", style="dim"),
+        }.get(stats.status, Text("?", style="dim"))
+
+        body.append_text(status_icon)
+        body.append(f" {stats.display_name}", style="bold")
+        body.append(f" ({stats.window_days}d)")
+        if stats.tier:
+            body.append(f"  {stats.tier}", style=theme_spec.dim_text)
+        body.append("\n")
+
+        if stats.status == "unconfigured":
+            body.append(f"  {stats.error or 'not configured'}\n", style=theme_spec.dim_text)
+            continue
+
+        if stats.status == "unknown" and stats.messages == 0 and stats.sessions == 0:
+            body.append(f"  {stats.error or 'unavailable'}\n", style=theme_spec.dim_text)
+            continue
+
+        if stats.status == "empty":
+            body.append(
+                f"  {stats.note or stats.error or 'no activity in window'}\n",
+                style=theme_spec.dim_text,
+            )
+            continue
+
+        # Usage progress bar (messages / limit)
+        fraction = stats.usage_fraction
+        body.append("  used  ", style="bold")
+        if fraction is not None:
+            body.append_text(_build_progress_bar(fraction, usage_style=True))
+            pct = fraction * 100
+            pct_style = (
+                "bold red" if pct >= 90 else "yellow" if pct >= 70 else "green"
+            )
+            body.append(f" {pct:.0f}%", style=pct_style)
+            body.append(f"\n        {stats.messages:,} / {stats.limit:,} msgs\n")
+        else:
+            body.append(f"{stats.messages:,} msgs\n", style=theme_spec.dim_text)
+
+        # Time remaining progress bar (elapsed fraction of window)
+        elapsed = stats.time_elapsed_fraction
+        if elapsed is not None and stats.time_remaining_seconds is not None:
+            body.append("  time  ", style="bold")
+            body.append_text(_build_progress_bar(elapsed, usage_style=False))
+            body.append(
+                f" {_format_time_remaining(stats.time_remaining_seconds)} left\n",
+                style=theme_spec.dim_text,
+            )
+
+        # Counts line
+        body.append("  sessions ", style="bold")
+        body.append(f"{stats.sessions:,}", style=theme_spec.dim_text)
+        body.append("  tools ", style="bold")
+        body.append(f"{stats.tool_calls:,}\n", style=theme_spec.dim_text)
+
+        if stats.input_tokens > 0 or stats.output_tokens > 0:
+            body.append("  tokens ", style="bold")
+            body.append(
+                f"in {_format_token_count(stats.input_tokens)} "
+                f"out {_format_token_count(stats.output_tokens)}\n",
+                style=theme_spec.dim_text,
+            )
+
+        if stats.note:
+            body.append(f"  {stats.note}\n", style=theme_spec.dim_text)
 
     return Panel(
         body,
-        title=Text("Legend", style=f"bold {theme_spec.card_text}"),
+        title=Text("Usage", style=f"bold {theme_spec.card_text}"),
         border_style=theme_spec.card_border,
         box=box.ROUNDED,
         style=f"{theme_spec.card_text} on {theme_spec.card_background}",
@@ -823,8 +984,10 @@ class HelpScreen(ModalScreen[None]):
             ("Middle click", "Open Actions in new tab"),
             ("Right click", "Back / dismiss overlay"),
             ("Escape", "Back / dismiss overlay"),
+            ("Ctrl+Scroll", "Resize card width"),
             ("s", "Cycle sort mode"),
             ("f", "Cycle filter mode, including teams"),
+            ("g", "Toggle grouped / packed layout"),
             ("t", "Cycle theme"),
             ("r", "Force refresh"),
             ("o", "Open repo in browser"),
@@ -999,8 +1162,10 @@ class RepoGrid(Static):
         return _repo_at_position(self._card_regions, x, y)
 
     def _grid_column_count(self) -> int:
-        usable_width = max(self.size.width, _PANEL_WIDTH)
-        return max(1, usable_width // (_PANEL_WIDTH + _PANEL_GAP))
+        app = self.app
+        pw = app.panel_width if isinstance(app, DashboardApp) else _PANEL_WIDTH
+        usable_width = max(self.size.width, pw)
+        return max(1, usable_width // (pw + _PANEL_GAP))
 
     def action_cursor_down(self) -> None:
         app = self.app
@@ -1032,6 +1197,22 @@ class RepoGrid(Static):
 
     def key_ctrl_m(self) -> None:
         self.action_open_detail()
+
+    def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        if event.ctrl:
+            app = self.app
+            if isinstance(app, DashboardApp):
+                app.panel_width = min(_PANEL_MAX_WIDTH, app.panel_width + _PANEL_WIDTH_STEP)
+            event.stop()
+            event.prevent_default()
+
+    def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        if event.ctrl:
+            app = self.app
+            if isinstance(app, DashboardApp):
+                app.panel_width = max(_PANEL_MIN_WIDTH, app.panel_width - _PANEL_WIDTH_STEP)
+            event.stop()
+            event.prevent_default()
 
     def on_click(self, event: events.Click) -> None:
         app = self.app
@@ -1095,7 +1276,7 @@ class MainScreen(Screen[None]):
         padding-right: 1;
         background: transparent;
     }
-    #sidebar-focus, #sidebar-legend, #sidebar-controls {
+    #sidebar-focus, #sidebar-usage, #sidebar-controls {
         width: 100%;
         margin-bottom: 1;
         background: transparent;
@@ -1114,6 +1295,7 @@ class MainScreen(Screen[None]):
         Binding("enter", "open_detail", "Open", show=False, priority=True),
         Binding("s", "cycle_sort", "Sort"),
         Binding("f", "cycle_filter", "Filter"),
+        Binding("g", "cycle_layout", "Layout"),
         Binding("o", "open_browser", "Open"),
     ]
 
@@ -1130,7 +1312,7 @@ class MainScreen(Screen[None]):
                     yield RepoGrid(id="repo-grid")
                 with VerticalScroll(id="sidebar"):
                     yield Static(id="sidebar-focus")
-                    yield Static(id="sidebar-legend")
+                    yield Static(id="sidebar-usage")
                     yield Static(id="sidebar-controls")
             yield Footer()
 
@@ -1147,7 +1329,13 @@ class MainScreen(Screen[None]):
         if not isinstance(app, DashboardApp):
             return
 
-        sorted_healths = _visible_healths_for(healths, sort_mode, filter_mode, app._repo_teams)
+        sorted_healths = _visible_healths_for(
+            healths,
+            sort_mode,
+            filter_mode,
+            app._repo_teams,
+            app.layout_mode,
+        )
         self.visible_repo_count = len(sorted_healths)
 
         app._ensure_selection(sorted_healths)
@@ -1157,7 +1345,8 @@ class MainScreen(Screen[None]):
         theme_spec = get_theme_spec(app.theme)
         grid = self.query_one(RepoGrid)
         scroll = self.query_one("#panel-scroll", VerticalScroll)
-        grid_width = max(grid.size.width, scroll.size.width - 1, _PANEL_WIDTH)
+        pw = app.panel_width
+        grid_width = max(grid.size.width, scroll.size.width - 1, pw)
         grid.set_card_regions(
             _build_repo_card_regions(
                 sorted_healths,
@@ -1167,6 +1356,8 @@ class MainScreen(Screen[None]):
                 app._team_labels,
                 filter_mode,
                 grid_width,
+                app.layout_mode,
+                panel_width=pw,
             )
         )
 
@@ -1178,6 +1369,8 @@ class MainScreen(Screen[None]):
                 app._repo_teams,
                 app._team_labels,
                 filter_mode,
+                app.layout_mode,
+                panel_width=pw,
             )
         )
         self.query_one("#sidebar-focus", Static).update(
@@ -1190,11 +1383,14 @@ class MainScreen(Screen[None]):
                 repo_count=self.visible_repo_count,
             )
         )
-        self.query_one("#sidebar-legend", Static).update(_build_legend_panel(theme_spec))
+        self.query_one("#sidebar-usage", Static).update(
+            _build_usage_panel(app._usage_stats, theme_spec)
+        )
         self.query_one("#sidebar-controls", Static).update(
             _build_controls_panel(
                 theme_spec,
                 app._team_labels,
+                layout_mode=app.layout_mode,
                 sort_mode=sort_mode,
                 filter_mode=filter_mode,
                 theme_name=app.theme,
@@ -1213,20 +1409,44 @@ class MainScreen(Screen[None]):
         consecutive_errors: int = 0,
     ) -> None:
         app = self.app
-        theme_name = app.theme if isinstance(app, DashboardApp) else "default"
-        selected_repo = app._selected_repo_full_name if isinstance(app, DashboardApp) else None
-        team_labels = app._team_labels if isinstance(app, DashboardApp) else {}
+        if not isinstance(app, DashboardApp):
+            return
+        theme_name = app.theme
+        selected_repo = app._selected_repo_full_name
+        team_labels = app._team_labels
+        layout_mode = app.layout_mode
         filter_label = _format_filter_label(filter_mode, team_labels)
 
         bar = Text()
         bar.append(org or "repos", style="bold")
-        bar.append(f" | {last_refresh}", style="dim")
+
+        # Countdown / stale / refreshing indicator
+        now = datetime.now(UTC)
+        if app._is_refreshing:
+            bar.append(" | refreshing...", style="bold yellow")
+        elif app._last_refresh_time is not None:
+            age = (now - app._last_refresh_time).total_seconds()
+            stale_threshold = app._refresh_seconds * 1.5
+            if age > stale_threshold:
+                age_min = int(age // 60)
+                bar.append(f" | /!\\ stale ({age_min}m ago)", style="bold yellow")
+            elif app._next_refresh_at is not None:
+                remaining = max(0, (app._next_refresh_at - now).total_seconds())
+                mins = int(remaining // 60)
+                secs = int(remaining % 60)
+                bar.append(f" | [r] {mins}m {secs:02d}s", style="dim")
+            else:
+                bar.append(f" | {last_refresh}", style="dim")
+        else:
+            bar.append(f" | {last_refresh}", style="dim")
+
         bar.append(f" | sort {sort_mode}", style="dim")
         if filter_mode != "all":
             bar.append(f" | filter {filter_label}", style="yellow")
         bar.append(f" | {repo_count} visible", style="dim")
         if selected_repo:
             bar.append(f" | {selected_repo.split('/')[-1]}", style="bold")
+        bar.append(f" | layout {layout_mode}", style="dim")
         bar.append(f" | theme {theme_name}", style="dim")
         if consecutive_errors > 0:
             bar.append(f" | {consecutive_errors} error(s)", style="bold red")
@@ -1247,9 +1467,9 @@ class MainScreen(Screen[None]):
 
         self.query_one("#panel-scroll", VerticalScroll).scroll_to(
             y=max(0, selected_region.y - 1),
-            animate=False,
+            animate=True,
             force=True,
-            immediate=True,
+            duration=0.15,
         )
 
     def action_cursor_down(self) -> None:
@@ -1294,6 +1514,13 @@ class MainScreen(Screen[None]):
                 idx = -1
             app.filter_mode = filters[(idx + 1) % len(filters)]
             app.notify(f"Filter: {app.filter_label(app.filter_mode)}", timeout=2)
+
+    def action_cycle_layout(self) -> None:
+        app = self.app
+        if isinstance(app, DashboardApp):
+            idx = (LAYOUT_MODES.index(app.layout_mode) + 1) % len(LAYOUT_MODES)
+            app.layout_mode = LAYOUT_MODES[idx]
+            app.notify(f"Layout: {app.layout_mode}", timeout=2)
 
     def action_open_browser(self) -> None:
         app = self.app
@@ -1374,6 +1601,7 @@ class DashboardApp(App[None]):
     """Interactive health dashboard for GitHub repositories."""
 
     TITLE = "ai-gh panel"
+    ANIMATION_LEVEL = "full"
 
     DEFAULT_CSS = """
     Screen {
@@ -1407,6 +1635,7 @@ class DashboardApp(App[None]):
         initial_theme: str = "default",
         health_config: dict | None = None,
         org_name: str = "",
+        skip_refresh: bool = False,
     ) -> None:
         super().__init__()
         self._repos = repos
@@ -1414,6 +1643,7 @@ class DashboardApp(App[None]):
         self._initial_theme = initial_theme
         self._health_config = health_config or {}
         self._org_name = org_name
+        self._skip_refresh = skip_refresh
         self._healths: list[RepoHealth] = []
         self._health_by_name: dict[str, RepoHealth] = {}
         self._repo_teams: dict[str, RepoTeamInfo] = {}
@@ -1423,9 +1653,19 @@ class DashboardApp(App[None]):
         self._refresh_cycle = 0
         self._consecutive_errors = 0
         self._last_error: str | None = None
+        self._is_refreshing = False
+        self._last_refresh_time: datetime | None = None
+        self._next_refresh_at: datetime | None = None
+        # Populate synchronously so the sidebar has data on first paint.
+        try:
+            self._usage_stats: list[UsageStats] = fetch_all_usage()
+        except Exception:
+            self._usage_stats = []
 
     sort_mode: reactive[str] = reactive(SORT_MODES[0])
     filter_mode: reactive[str] = reactive(FILTER_MODES[0])
+    layout_mode: reactive[str] = reactive(LAYOUT_MODES[0])
+    panel_width: reactive[int] = reactive(_PANEL_WIDTH)
 
     def on_mount(self) -> None:
         for theme in THEMES:
@@ -1435,14 +1675,22 @@ class DashboardApp(App[None]):
         self.push_screen(MainScreen())
         if self._repos:
             self.call_after_refresh(self._load_cached)
-            self.set_interval(self._refresh_seconds, self._trigger_refresh)
-            self._trigger_refresh()
+            if not self._skip_refresh:
+                self.set_interval(self._refresh_seconds, self._trigger_refresh)
+                self._trigger_refresh()
         else:
             self.call_after_refresh(self._update_ui)
+        self.set_interval(1, self._tick_countdown)
+        # Refresh usage independently on a short cadence; local reads are cheap.
+        self.set_interval(60, self._refresh_usage)
 
     def _visible_healths(self) -> list[RepoHealth]:
         return _visible_healths_for(
-            self._healths, self.sort_mode, self.filter_mode, self._repo_teams
+            self._healths,
+            self.sort_mode,
+            self.filter_mode,
+            self._repo_teams,
+            self.layout_mode,
         )
 
     def available_filter_modes(self) -> list[str]:
@@ -1540,12 +1788,18 @@ class DashboardApp(App[None]):
     def _load_cached(self) -> None:
         try:
             cache = load_cache()
-            if cache:
-                statuses = list(cache.values())
-                self._healths = [RepoHealth(status=s) for s in statuses]
-                self._health_by_name = {h.status.full_name: h for h in self._healths}
-                self._last_refresh = "cached"
-                self._update_ui()
+            if not cache:
+                return
+            statuses = list(cache.values())
+            health_cache = load_health_cache(cache)
+            self._healths = [
+                health_cache.get(s.full_name) or RepoHealth(status=s) for s in statuses
+            ]
+            self._health_by_name = {h.status.full_name: h for h in self._healths}
+            self._last_refresh = "cached" if not self._skip_refresh else "cached (no refresh)"
+            if self._skip_refresh:
+                self._last_refresh_time = datetime.now(UTC)
+            self._update_ui()
         except Exception as exc:
             self.notify(
                 f"Cache load failed: {exc.__class__.__name__}",
@@ -1553,7 +1807,16 @@ class DashboardApp(App[None]):
                 timeout=5,
             )
 
+    def _refresh_usage(self) -> None:
+        try:
+            self._usage_stats = fetch_all_usage()
+            self._update_ui()
+        except Exception:
+            pass
+
     def _trigger_refresh(self) -> None:
+        self._is_refreshing = True
+        self._next_refresh_at = datetime.now(UTC) + timedelta(seconds=self._refresh_seconds)
         self.run_worker(self._do_refresh_sync, thread=True, exit_on_error=False)
 
     def _do_refresh_sync(self) -> None:
@@ -1562,6 +1825,7 @@ class DashboardApp(App[None]):
             self._consecutive_errors = 0
             self._last_error = None
         except Exception as exc:
+            self._is_refreshing = False
             self._consecutive_errors += 1
             self._last_error = f"{exc.__class__.__name__}: {exc}"
             short = exc.__class__.__name__
@@ -1622,7 +1886,14 @@ class DashboardApp(App[None]):
         self._healths = healths
         self._health_by_name = {h.status.full_name: h for h in healths}
         self._last_refresh = datetime.now(UTC).strftime("%H:%M:%S UTC")
+        self._last_refresh_time = datetime.now(UTC)
+        self._is_refreshing = False
         self._refresh_cycle += 1
+
+        try:
+            self._usage_stats = fetch_all_usage()
+        except Exception:
+            pass
 
         self.call_from_thread(self._update_ui)
 
@@ -1649,9 +1920,33 @@ class DashboardApp(App[None]):
             except Exception:
                 pass
 
+    def _tick_countdown(self) -> None:
+        """Update the status bar every second for the countdown timer."""
+        try:
+            screen = self.screen
+            if isinstance(screen, MainScreen):
+                screen.update_status_bar(
+                    self._org_name,
+                    self._last_refresh,
+                    self.sort_mode,
+                    self.filter_mode,
+                    screen.visible_repo_count,
+                    self._consecutive_errors,
+                )
+        except Exception:
+            pass
+
     def action_refresh_now(self) -> None:
         self.notify("Refreshing...", timeout=2)
         self._trigger_refresh()
+
+    async def action_quit(self) -> None:
+        # Cancel in-flight threaded workers so shutdown doesn't wait on GH calls.
+        try:
+            self.workers.cancel_all()
+        except Exception:
+            pass
+        self.exit()
 
     def _grid_step(self) -> int:
         screen = self.screen
@@ -1705,6 +2000,12 @@ class DashboardApp(App[None]):
     def watch_filter_mode(self, _old: str, _new: str) -> None:
         self._update_ui()
 
+    def watch_layout_mode(self, _old: str, _new: str) -> None:
+        self._update_ui()
+
+    def watch_panel_width(self, _old: int, _new: int) -> None:
+        self._update_ui()
+
 
 def run_panel(
     repos: list[Repository],
@@ -1712,6 +2013,7 @@ def run_panel(
     theme: str = "default",
     health_config: dict | None = None,
     org_name: str = "",
+    skip_refresh: bool = False,
 ) -> None:
     """Launch the interactive panel dashboard."""
     app = DashboardApp(
@@ -1720,5 +2022,6 @@ def run_panel(
         initial_theme=theme,
         health_config=health_config,
         org_name=org_name,
+        skip_refresh=skip_refresh,
     )
     app.run()
