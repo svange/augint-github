@@ -22,9 +22,7 @@ ai-gh = "gh_secrets_and_vars_async.cli:main"
 ai-gh-push = "gh_secrets_and_vars_async:cli"
 
 [project.optional-dependencies]
-tui = ["textual>=1.0.0,<2"]
 dev = [
-    "textual>=1.0.0,<2",
     "pytest>=8.3.4",
     "pytest-html>=4.1.1",
     "pytest-cov>=6.0.0",

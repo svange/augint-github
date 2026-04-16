@@ -14,11 +14,14 @@ class TestCLIGroup:
         assert "config" in result.output
         assert "status" in result.output
         assert "init" in result.output
-        assert "tui" in result.output
         # workflow command was deleted (T4-2)
         assert "workflow" not in result.output
         # push was removed in favor of sync
         assert "push" not in result.output
+        # TUI commands moved to augint-tools
+        assert "tui" not in result.output
+        assert "panel" not in result.output
+        assert "dashboard" not in result.output
 
     def test_sync_help(self):
         runner = CliRunner()
