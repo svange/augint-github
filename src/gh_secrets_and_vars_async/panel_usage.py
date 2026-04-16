@@ -415,7 +415,7 @@ def _openai_usage_request(
     req.add_header("Authorization", f"Bearer {api_key}")
     if org_id:
         req.add_header("OpenAI-Organization", org_id)
-    with urllib.request.urlopen(req, timeout=8) as resp:  # noqa: S310  # nosec B310  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected
+    with urllib.request.urlopen(req, timeout=8) as resp:  # noqa: S310  # nosec B310  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         payload: dict = json.loads(resp.read().decode("utf-8"))
     return payload
 
