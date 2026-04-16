@@ -9,7 +9,7 @@
 [![Made with GH Actions](https://img.shields.io/badge/CI-GitHub_Actions-blue?logo=github-actions&logoColor=white)](https://github.com/features/actions)
 [![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%93%80-semantic--release-e10079.svg)](https://github.com/semantic-release/semantic-release)
 
-Push variables and secrets from `.env` files to GitHub Actions.
+GitHub repository management CLI: push secrets, enforce repo standards, and surface health problems across your multi-repo ecosystem.
 
 ## Reports
 
@@ -25,11 +25,168 @@ Push variables and secrets from `.env` files to GitHub Actions.
 
 ```bash
 pip install augint-github
+
+# For the interactive health panel (optional)
+pip install 'augint-github[tui]'
 ```
 
-## Usage
+## Quick Start
 
 ```bash
 # Push .env secrets and variables to a GitHub repository
 ai-gh-push
+
+# Launch the interactive health dashboard
+ai-gh panel --all --org myorg
+```
+
+## Commands
+
+### `ai-gh panel` -- Interactive Health Dashboard
+
+An interactive TUI that ranks your repositories by health, showing you the most important thing to work on next. Built with [Textual](https://github.com/Textualize/textual).
+
+```bash
+ai-gh panel --all                          # All repos for the authenticated user
+ai-gh panel --all --org myorg              # All repos in an organization
+ai-gh panel -i                             # Interactively select repos
+ai-gh panel --all --theme cyber            # Neon green/cyan theme
+ai-gh panel --all --stale-days 3           # Flag PRs stale after 3 days
+ai-gh panel --all --refresh-seconds 120    # Refresh every 2 minutes
+ai-gh panel --all --env-auth               # Force GH_TOKEN from .env
+```
+
+By default, `panel` uses `gh auth token` / your GitHub CLI keyring session when available.
+Use `--env-auth` to force `GH_TOKEN` from `.env`.
+
+**Health checks** (in priority order):
+
+| Check | Severity | What it detects |
+|-------|----------|-----------------|
+| Broken CI | Critical | Failing workflows on main/dev branches |
+| Renovate not configured | High | Missing `renovate.json5` or equivalent config |
+| Renovate PRs piling up | High | 3+ open PRs from `renovate[bot]` |
+| Repo standards | Medium | Stub -- placeholder for future config audits |
+| Stale PRs | Medium | Open PRs older than `--stale-days` (default 5) |
+| Many open issues | Low | More than 10 open issues |
+
+**Keybindings**:
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate up/down |
+| `Enter` | Drill down into repo health details |
+| `Escape` | Back to main view |
+| `s` | Cycle sort mode (worst-first, alphabetical, by-problem-type) |
+| `f` | Cycle filter (all, critical, high, medium, low) |
+| `o` | Open repo in browser |
+| `t` | Cycle theme (default, cyber, minimal) |
+| `r` | Force refresh |
+| `?` | Help screen |
+| `q` | Quit |
+
+**Themes**: `default` (muted blues), `cyber` (neon green/cyan/magenta), `minimal` (monochrome).
+
+### `ai-gh dashboard` -- V2 Widget-Based Dashboard
+
+A widget-per-card redesign of `ai-gh panel`. Cards, layouts, and themes are pluggable; selection and refresh animate via CSS transitions; usage folds into the top bar with on-demand drawers for details and errors.
+
+```bash
+ai-gh dashboard --all                       # All repos; default theme, packed layout
+ai-gh dashboard --all --layout grouped      # Group by GitHub team
+ai-gh dashboard --all --layout dense        # Compact 2-line cards
+ai-gh dashboard --all --theme nord          # Alternate theme
+ai-gh dashboard --no-refresh -a             # Render from cache only (fast)
+```
+
+**Layouts**: `packed` (default), `grouped` (by team), `dense` (2-line), `list` (full-width rows).
+
+**Themes**: `default` (default), `paper`, `nord`, `minimal`, `cyber`, `matrix`, `synthwave`.
+
+**Extra keys** (on top of the `panel` bindings): `g` cycle layout, `d` toggle detail drawer, `u` toggle usage drawer, `i` toggle org-health drawer, `e` open error log, `+` / `-` or `ctrl+mousewheel` widen / narrow cards.
+
+**Mouse**:
+
+| Gesture | Action |
+|---|---|
+| Left click a card | select (shows inline `SEL` badge) + open drilldown |
+| Right click | back a level (close drawer, else pop top screen) |
+| Middle click a card | open the repo's Actions page |
+| Meta (Alt/Cmd) + click card | open Actions page |
+| Meta + click on the counts row | open the repo's Pulls page |
+| `ctrl` + mousewheel | widen / narrow cards |
+
+Selection is shown with an inline badge rather than a border change, so the selected card stays visually stable as severity borders animate. Team badges (auto-discovered via `repo.get_teams()`) render in the title row with a deterministic colour per team.
+
+Themes and layouts can be cycled live without restart -- the grid reconciles cards in place rather than unmounting and remounting, so there is no flicker when toggling (`t` / `g`) or during the 60s usage refresh.
+
+#### Dashboard development
+
+The dashboard lives in `src/gh_secrets_and_vars_async/dashboard/` with layouts and themes registered at import time. For UI iteration:
+
+```bash
+# CSS hot-reload + devtools console (Textual dev server)
+uv run textual run --dev gh_secrets_and_vars_async.dashboard.app:DashboardApp
+
+# Pure-cache run -- no GitHub API calls, instant startup
+uv run ai-gh dashboard --no-refresh -a
+```
+
+Editing any `.tcss` file under `dashboard/themes/` reloads styles live when run under `textual run --dev`. Adding a new layout or theme is a one-line registration -- see `dashboard/layouts/__init__.py` and `dashboard/themes/__init__.py`.
+
+### `ai-gh tui` -- Live Status Dashboard
+
+A passive Rich Live display showing pipeline status, issues, and PRs across repos. Auto-refreshes without keyboard interaction.
+
+```bash
+ai-gh tui --all --org myorg
+ai-gh tui -i                     # Interactive repo selection
+ai-gh tui --all --env-auth       # Force GH_TOKEN from .env
+```
+
+### `ai-gh sync` / `ai-gh-push`
+
+Push `.env` secrets and variables to GitHub Actions.
+
+```bash
+ai-gh sync           # Sync current repo
+ai-gh-push           # Shortcut entry point
+```
+
+### `ai-gh init`
+
+Bootstrap a GitHub repository with settings and secrets.
+
+### `ai-gh config`
+
+Check or set repository configuration (merge strategy, auto-merge, etc.).
+
+### `ai-gh rulesets`
+
+View, apply, or delete branch rulesets on a GitHub repository.
+
+### `ai-gh status`
+
+Show repository configuration: auto-merge, non-default branches, and settings.
+
+### `ai-gh chezmoi`
+
+Back up `.env` to chezmoi and sync secrets to GitHub.
+
+## Environment
+
+- **Auth default**: `gh auth token` / GitHub CLI keyring session when available
+- **`GH_TOKEN`**: optional explicit override in the current shell, or `.env` fallback
+- **Python**: 3.12+
+- **Package manager**: [uv](https://docs.astral.sh/uv/)
+
+## Development
+
+```bash
+uv sync --all-extras                         # Install all dependencies
+uv run pytest                                # Run tests
+uv run pytest --cov=src --cov-fail-under=80  # Tests with coverage
+uv run ruff check src/                       # Lint
+uv run mypy src/                             # Type check
+uv run pre-commit run --all-files            # All pre-commit hooks
 ```
