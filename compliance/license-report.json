@@ -57,12 +57,12 @@
   {
     "License": "MIT",
     "Name": "augint-github",
-    "Version": "1.12.0"
+    "Version": "1.13.0"
   },
   {
     "License": "UNKNOWN",
     "Name": "augint-shell",
-    "Version": "0.71.0"
+    "Version": "0.78.0"
   },
   {
     "License": "Apache-2.0",
@@ -181,11 +181,6 @@
   },
   {
     "License": "MIT License",
-    "Name": "linkify-it-py",
-    "Version": "2.1.0"
-  },
-  {
-    "License": "MIT License",
     "Name": "loguru",
     "Version": "0.7.3"
   },
@@ -198,11 +193,6 @@
     "License": "MIT",
     "Name": "markdown2",
     "Version": "2.5.5"
-  },
-  {
-    "License": "MIT License",
-    "Name": "mdit-py-plugins",
-    "Version": "0.5.0"
   },
   {
     "License": "MIT License",
@@ -292,12 +282,12 @@
   {
     "License": "MIT",
     "Name": "pydantic",
-    "Version": "2.13.0"
+    "Version": "2.13.1"
   },
   {
     "License": "MIT",
     "Name": "pydantic_core",
-    "Version": "2.46.0"
+    "Version": "2.46.1"
   },
   {
     "License": "MIT",
@@ -385,11 +375,6 @@
     "Version": "5.7.0"
   },
   {
-    "License": "MIT License",
-    "Name": "textual",
-    "Version": "1.0.0"
-  },
-  {
     "License": "MIT",
     "Name": "tomli",
     "Version": "2.4.1"
@@ -413,11 +398,6 @@
     "License": "PSF-2.0",
     "Name": "typing_extensions",
     "Version": "4.15.0"
-  },
-  {
-    "License": "MIT License",
-    "Name": "uc-micro-py",
-    "Version": "2.0.0"
   },
   {
     "License": "MIT",
